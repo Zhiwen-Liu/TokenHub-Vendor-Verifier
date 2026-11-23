@@ -62,6 +62,15 @@ load_env() {
 
 load_env
 
+# stdbuf is not shipped with macOS; Python unbuffered output is sufficient there.
+line_buffered() {
+    if command -v stdbuf >/dev/null 2>&1; then
+        stdbuf -oL -eL "$@"
+    else
+        PYTHONUNBUFFERED=1 "$@"
+    fi
+}
+
 # 数据集目录：默认优先 datasets_clean/（已脱敏，避免供应商内容安全拦截污染成功率），
 # 不存在时回落到 datasets/（原始真实语料，含敏感内容）。
 # 可用 DATASET_DIR=<目录> 显式指定。
@@ -111,7 +120,7 @@ validate_conn() {
                 fi ;;
         esac
     fi
-    if [[ -z "${API_KEY:-}" ]]; then
+    if [[ -z "${API_KEY:-}" && "${THVV_ALLOW_EMPTY_API_KEY:-0}" != "1" ]]; then
         echo "[fail] API_KEY 未设置，请检查 configs/.env（或环境变量）。" >&2
         bad=1
     fi
@@ -229,29 +238,12 @@ ensure_perf_deps() {
 }
 
 # ---- 检测 tokenizer 本地缓存，未缓存则自动下载 ----
-# 用户无需手动执行 setup_tokenizer.py；首次压测时自动从 HuggingFace / ModelScope 下载
+# 首次压测优先从魔搭社区下载，失败后使用 HF 镜像；压测使用已验证的本地目录。
 ensure_tokenizer_cached() {
     # 可选参数 $1：指定要检查的 tokenizer；缺省为全局 $TOKENIZER
     local tok="${1:-$TOKENIZER}"
     [[ -z "$tok" ]] && return 0
-    # 用 local_files_only=True 探测；命中则直接返回，未命中则触发下载
-    python3 - "$tok" "$KIT_DIR/scripts/setup_tokenizer.py" <<'PY'
-import sys, os, subprocess
-tok_name = sys.argv[1]
-setup_script = sys.argv[2]
-try:
-    from transformers import AutoTokenizer
-    AutoTokenizer.from_pretrained(tok_name, trust_remote_code=True, local_files_only=True)
-    print(f"  [tokenizer] 已缓存: {tok_name}")
-except Exception:
-    print(f"  [tokenizer] 未缓存，开始下载 {tok_name} ...")
-    # 调用 setup_tokenizer.py 完成下载 + 注入 chat_template（显式传入目标 tokenizer 名）
-    ret = subprocess.call(["python3", setup_script], env={**os.environ, "TOKENIZER": tok_name})
-    if ret != 0:
-        print(f"  [tokenizer] 下载失败，请检查网络或手动执行: python3 {setup_script}", file=sys.stderr)
-        sys.exit(1)
-    print(f"  [tokenizer] 下载完成: {tok_name}")
-PY
+    TOKENIZER_LOCAL_PATH=$(TOKENIZER="$tok" python3 "$KIT_DIR/scripts/setup_tokenizer.py" --resolve)
 }
 
 # ---- bucket -> token 区间 ----
@@ -372,7 +364,7 @@ cmd_bench() {
 
     evalscope perf \
         --model "$MODEL_NAME" --api "$PROTOCOL" \
-        --tokenizer-path "$tok" \
+        --tokenizer-path "$TOKENIZER_LOCAL_PATH" \
         --url "$API_URL" --api-key "$API_KEY" \
         --temperature "$TEMPERATURE" \
         --headers Accept-Encoding=identity \
@@ -461,6 +453,7 @@ cmd_bench_all() {
     validate_conn || exit 1
     auto_detect_tokenizer
     ensure_tokenizer_cached
+    local default_tokenizer_path="$TOKENIZER_LOCAL_PATH"
 
     # 1m 档暂停默认压测（数据集保留），显式 BUCKETS=...1m 或 bench 1m 仍可运行
     local buckets="${BUCKETS:-1k 9k 16k 32k 64k 128k 200k 512k}"
@@ -546,6 +539,7 @@ cmd_bench_all() {
         tlog "========== [$idx/$total] bucket=$label  并发梯度: ${cur_conc[*]}（单条 ${once_tokens} token，并发上限 ${max_par}）(早停阈值: 成功率<${sr_min}%) =========="
 
         local tok; tok=$(bucket_tokenizer "$label")
+        TOKENIZER_LOCAL_PATH="$default_tokenizer_path"
         if [[ "$tok" != "$TOKENIZER" ]]; then
             tlog "[info] 档位 $label 使用数据集构建分词器: $tok（模型分词器: $TOKENIZER）"
             ensure_tokenizer_cached "$tok"
@@ -572,9 +566,9 @@ cmd_bench_all() {
             tlog "        out=$out"
 
             # stdbuf 让 evalscope 输出无缓冲，tee 同时写日志和控制台（QCI 可实时看到进度）
-            stdbuf -oL -eL evalscope perf \
+            line_buffered evalscope perf \
         --model "$MODEL_NAME" --api "$PROTOCOL" \
-        --tokenizer-path "$tok" \
+        --tokenizer-path "$TOKENIZER_LOCAL_PATH" \
         --url "$API_URL" --api-key "$API_KEY" \
         --temperature "$TEMPERATURE" \
         --headers Accept-Encoding=identity \

@@ -385,7 +385,8 @@ def pre_check(args):
     err = _validate_url(args.base_url, '--base_url')
     if err:
         errors.append(err)
-    err = _validate_not_empty(args.api_key, '--api_key')
+    err = (None if os.environ.get('THVV_ALLOW_EMPTY_API_KEY') == '1'
+           else _validate_not_empty(args.api_key, '--api_key'))
     if err:
         errors.append(err)
 

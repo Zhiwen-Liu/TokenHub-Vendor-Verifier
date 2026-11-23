@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Token Vendor Verifier</title><style>body{margin:0;background:#f7f8fa;padding:20px}body>div{max-width:1180px;margin:auto}@media(max-width:600px){body{padding:0}}</style></head><body>
+<style>
+#thvv-concept{--th-bg:light-dark(#f7f8fa,#15191d);--th-panel:light-dark(#fff,#1e242a);--th-text:light-dark(#24313d,#e8edf2);--th-muted:light-dark(#637183,#a8b5c2);--th-line:light-dark(#dfe5ec,#39434e);--th-accent:light-dark(#2b5ad7,#9cb9ff);--th-tint:light-dark(#edf3ff,#283956);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:var(--th-text);width:100%;overflow-wrap:anywhere}
+#thvv-concept *{box-sizing:border-box}#thvv-concept [hidden]{display:none!important}#thvv-concept button,#thvv-concept input,#thvv-concept select,#thvv-concept textarea{font:inherit}#thvv-concept h2,#thvv-concept h3,#thvv-concept p{margin:0}#thvv-concept h2{font-size:23px;line-height:1.35;font-weight:650}#thvv-concept h3{font-size:15px;font-weight:600}#thvv-concept .th-window{background:var(--th-bg);border:1px solid var(--th-line);border-radius:12px;overflow:hidden}#thvv-concept .th-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 100px 18px 24px;background:var(--th-panel);border-bottom:1px solid var(--th-line)}#thvv-concept .th-brand{font-size:19px;font-weight:700;letter-spacing:1px}#thvv-concept .th-small{color:var(--th-muted);font-size:12px}#thvv-concept .th-main{padding:24px}#thvv-concept .th-heading{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:18px}#thvv-concept .th-mode{display:flex;gap:7px;flex-wrap:wrap}#thvv-concept .th-mode button{border:1px solid var(--th-line);border-radius:7px;padding:8px 15px;background:var(--th-panel);color:var(--th-text)}#thvv-concept .th-mode button[aria-pressed=true]{color:var(--th-accent);border-color:var(--th-accent);background:var(--th-tint)}#thvv-concept .th-panel{padding:20px;background:var(--th-panel);border:1px solid var(--th-line);border-radius:10px;margin-bottom:14px}#thvv-concept .th-panel>h3{margin-bottom:14px}#thvv-concept .th-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px}#thvv-concept .th-field{display:flex;flex-direction:column;gap:6px;font-size:13px;min-width:0}#thvv-concept .th-wide{grid-column:1/-1}#thvv-concept input:not([type=checkbox]),#thvv-concept select,#thvv-concept textarea{width:100%;min-width:0;padding:9px 11px;border:1px solid var(--th-line);border-radius:7px;background:var(--th-panel);color:var(--th-text)}#thvv-concept input:disabled{background:var(--th-bg);color:var(--th-muted)}#thvv-concept input::placeholder,#thvv-concept textarea::placeholder{color:var(--th-muted);opacity:1}#thvv-concept textarea{resize:vertical}#thvv-concept input:focus-visible,#thvv-concept select:focus-visible,#thvv-concept textarea:focus-visible,#thvv-concept button:focus-visible,#thvv-concept summary:focus-visible{outline:2px solid var(--th-accent);outline-offset:3px}#thvv-concept input[type=checkbox]{accent-color:var(--th-accent);width:15px;height:15px;flex:none;margin:3px 0 0}#thvv-concept .th-check{display:flex;gap:8px;align-items:flex-start;font-size:13px}#thvv-concept .th-note{margin-top:10px;color:var(--th-muted);font-size:12px}#thvv-concept .th-notice{margin-top:14px;padding:11px 13px;background:var(--th-tint);color:var(--th-text);border-radius:7px;font-size:13px}#thvv-concept .th-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px}#thvv-concept .th-dataset{display:flex;gap:8px;border:1px solid var(--th-line);border-radius:7px;padding:9px 10px;min-width:0;font-size:13px}#thvv-concept .th-dataset:has(input:checked){background:var(--th-tint);border-color:var(--th-accent)}#thvv-concept .th-dataset:has(input:disabled){opacity:.75}#thvv-concept .th-dataset small{display:block;color:var(--th-muted);font-size:11px;margin-top:3px}#thvv-concept .th-advanced{border-top:1px solid var(--th-line);padding-top:14px;margin-top:18px}#thvv-concept .th-advanced summary{font-size:13px;color:var(--th-muted)}#thvv-concept .th-advanced .th-fields{margin-top:14px}#thvv-concept .th-space{margin-top:14px}#thvv-concept .th-footer{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap;margin-top:18px}#thvv-concept .th-footer strong{font-size:14px;font-weight:600}#thvv-concept .th-submit{border:0;border-radius:7px;padding:10px 16px;background:var(--th-tint);color:var(--th-muted)}#thvv-concept .th-empty{margin-top:14px;padding:14px;background:var(--th-bg);border-radius:7px;color:var(--th-muted);font-size:13px}#thvv-concept .th-sources{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px;font-size:12px;color:var(--th-muted)}#thvv-concept a{color:var(--th-accent)}#thvv-concept .th-output-list{margin:10px 0 0;padding-left:20px;font-size:13px;color:var(--th-muted)}#thvv-concept .th-output-list li{margin-top:5px}#thvv-concept .th-current{font-variant-numeric:tabular-nums}
+@media(max-width:760px){#thvv-concept .th-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#thvv-concept .th-main{padding:18px}}
+@media(max-width:460px){#thvv-concept .th-fields,#thvv-concept .th-grid{grid-template-columns:1fr}#thvv-concept .th-main{padding:12px}#thvv-concept .th-panel{padding:15px}#thvv-concept .th-top{padding-left:15px}#thvv-concept .th-brand{width:100%}#thvv-concept .th-footer .th-submit{width:100%}}
+@media(pointer:coarse){#thvv-concept button,#thvv-concept .th-check,#thvv-concept .th-dataset{min-height:44px}#thvv-concept input:not([type=checkbox]),#thvv-concept select,#thvv-concept textarea{font-size:16px}}
+#thvv-concept .th-connection-picker{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--th-line)}#thvv-concept .th-save-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}#thvv-concept .th-save-button{padding:9px 15px;border:1px solid var(--th-accent);border-radius:7px;background:var(--th-tint);color:var(--th-accent)}#thvv-concept .th-save-button:disabled{opacity:.6}#thvv-concept .th-default{color:var(--th-muted);font-size:12px;line-height:1.5}#thvv-concept .th-rules{margin-top:12px;color:var(--th-muted);font-size:12px;display:grid;gap:7px}#thvv-concept .th-default-heading{margin-top:6px!important;margin-bottom:16px!important}
+#thvv-concept .th-stages{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:24px}#thvv-concept .th-stages button{display:flex;align-items:center;gap:10px;text-align:left;padding:13px 15px;border:1px solid var(--th-line);border-radius:8px;background:var(--th-panel);color:var(--th-muted)}#thvv-concept .th-stages button[aria-current=page]{background:var(--th-tint);border-color:var(--th-accent);color:var(--th-accent)}#thvv-concept .th-stages button:disabled{opacity:.5}#thvv-concept .th-step-number{font-size:12px;font-variant-numeric:tabular-nums}#thvv-concept .th-stage-heading{margin-bottom:18px}#thvv-concept .th-stage-heading p{margin-top:6px}#thvv-concept .th-object-summary{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:16px}#thvv-concept .th-link-button{border:1px solid var(--th-line);border-radius:6px;padding:7px 11px;background:var(--th-panel);color:var(--th-accent)}#thvv-concept .th-table-wrap{overflow-x:auto}#thvv-concept table{width:100%;border-collapse:collapse;font-size:13px}#thvv-concept th{padding:11px 8px;border-bottom:1px solid var(--th-line);color:var(--th-muted);text-align:left;font-weight:500}#thvv-concept td{padding:22px 8px;text-align:center;color:var(--th-muted)}#thvv-concept .th-path-help{margin-top:7px;font-size:12px;color:var(--th-muted);display:grid;gap:4px}#thvv-concept .th-path-help code{font:inherit;color:var(--th-text)}
+@media(max-width:460px){#thvv-concept .th-stages{gap:5px}#thvv-concept .th-stages button{flex-direction:column;align-items:flex-start;gap:3px;padding:9px 8px;font-size:12px}}
+#thvv-concept .th-object-picker{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}#thvv-concept .th-object-picker .th-field{flex:1;min-width:min(100%,260px)}#thvv-concept .th-mode{margin-top:16px}
+#thvv-concept .th-task-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}#thvv-concept .th-task-action{border:0;background:transparent;color:var(--th-accent);padding:5px 0}#thvv-concept .th-task-action:disabled{color:var(--th-muted);opacity:.65}#thvv-concept .th-task-delete:not(:disabled){color:light-dark(#b32a36,#ff9ca4)}#thvv-concept .th-history-table th:last-child{min-width:132px}#thvv-concept .th-history-table td:last-child{padding:14px 8px}
+#thvv-concept .th-object-table td{text-align:left;border-bottom:1px solid var(--th-line);color:var(--th-text);padding:12px 8px}#thvv-concept .th-object-table th:last-child{min-width:96px}#thvv-concept .th-object-table td[colspan]{text-align:center;color:var(--th-muted)}
+#thvv-concept .th-env-table{table-layout:fixed}#thvv-concept .th-env-table>thead>tr>th:first-child{width:24%}#thvv-concept .th-env-table>thead>tr>th:nth-child(2){width:90px}#thvv-concept .th-env-table>tbody>tr>td{vertical-align:top;line-height:1.7}#thvv-concept .th-env-state{display:inline-block;padding:2px 8px;border-radius:5px;white-space:nowrap;background:var(--th-bg);font-size:12px}#thvv-concept .th-env-state[data-env-state=ready]{background:#eaf6ee;color:#28603b}#thvv-concept .th-env-state[data-env-state=missing],#thvv-concept .th-env-state[data-env-state=manual]{background:#fff3df;color:#805718}#thvv-concept .th-env-state[data-env-state=checking],#thvv-concept .th-env-state[data-env-state=preparing]{background:var(--th-tint);color:var(--th-accent)}#thvv-concept .th-env-details{margin-top:8px;font-size:12px}#thvv-concept .th-env-details summary{cursor:pointer;color:var(--th-accent)}#thvv-concept .th-env-details pre{margin:8px 0 0;padding:12px;background:var(--th-bg);border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;font-size:12px;line-height:1.6;color:var(--th-muted)}#thvv-concept .th-env-versions{min-width:380px;margin-top:8px;font-size:12px}#thvv-concept .th-env-versions th,#thvv-concept .th-env-versions td{padding:8px;vertical-align:top}#thvv-concept .th-env-versions th:last-child{min-width:48px}@media(max-width:600px){#thvv-concept .th-env-table>thead>tr>th:first-child{width:24%}#thvv-concept .th-env-table>thead>tr>th:nth-child(2){width:76px}#thvv-concept .th-env-table>tbody>tr>td{padding:12px 5px}#thvv-concept .th-env-state{padding:2px 5px}}
+#thvv-concept button{cursor:pointer;transition:background-color .15s,border-color .15s,box-shadow .15s,transform .1s,opacity .15s}#thvv-concept button:not(:disabled):hover{border-color:var(--th-accent);box-shadow:0 2px 7px #24313d14}#thvv-concept button:not(:disabled):active{transform:translateY(1px) scale(.98);box-shadow:inset 0 1px 3px #24313d25}#thvv-concept button:disabled{cursor:not-allowed;opacity:.55}#thvv-concept button[aria-busy=true]{cursor:progress;opacity:.9}#thvv-concept button[aria-busy=true]::before{content:"";display:inline-block;width:12px;height:12px;margin-right:7px;vertical-align:-2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:th-spin .7s linear infinite;flex-shrink:0}@keyframes th-spin{to{transform:rotate(360deg)}}#thvv-concept .th-feedback{position:fixed;right:24px;bottom:24px;z-index:1000;max-width:min(420px,calc(100vw - 32px));padding:13px 18px;border:1px solid #b6d8c2;border-radius:9px;background:#f0faf3;color:#285c3a;box-shadow:0 6px 24px #24313d20;font-size:14px;line-height:1.6;pointer-events:none;animation:th-feedback-in .16s ease-out}#thvv-concept .th-feedback[data-kind=warning]{background:#fff8ec;border-color:#e9d2a5;color:#795515}#thvv-concept .th-feedback[data-kind=error]{background:#fff3f3;border-color:#e8bcbc;color:#9a3030}@keyframes th-feedback-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@media(prefers-reduced-motion:reduce){#thvv-concept button{transition:none}#thvv-concept button:not(:disabled):active{transform:none}#thvv-concept button[aria-busy=true]::before,#thvv-concept .th-feedback{animation:none}}
+</style>
+<div id="thvv-concept" aria-label="THVV 测试页面与接口配置保存">
+  <div id="web-feedback" class="th-feedback" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+  <div class="th-window">
+    <header class="th-top"><span class="th-brand">Token Vendor Verifier</span></header>
+    <main class="th-main"><p id="web-status" class="th-notice" role="status" hidden></p><p id="web-error" class="th-notice" role="alert" hidden></p>
+      <nav class="th-stages" aria-label="功能导航">
+        <button type="button" data-stage="1">测试对象</button>
+        <button type="button" data-stage="2" aria-current="page">测试配置</button>
+        <button type="button" data-stage="3">结论与历史</button>
+      </nav>
+      <div data-stage-panel="1" hidden>
+      <div class="th-stage-heading"><h2>测试对象</h2><p class="th-small">新增或修改对象，保存后可在测试配置中直接选择。</p></div>
+      <section class="th-panel" aria-labelledby="th-connection-heading">
+        <h3 id="th-connection-heading">新增测试对象</h3>
+        <div class="th-fields">
+          <label class="th-field">对象名称<input id="th-connection-name" type="text" placeholder="为测试对象取一个名称" autocomplete="off"></label>
+          <label class="th-field">API 密钥（可选）<input type="password" id="web-api-key" data-native="API_KEY" placeholder="可留空" autocomplete="new-password"><small class="th-default">可留空用于无需鉴权的端点；编辑时留空保留已保存密钥。</small></label>
+          <label class="th-field th-wide">接口基础地址 URL<input type="url" id="th-api-url" data-adapter="base-url-to-API_URL" placeholder="https://你的服务地址/v1" autocomplete="off"><span class="th-path-help"><span>通常填写到 <code>/v1</code>，无需填写 <code>/chat/completions</code> 或 <code>/messages</code>。</span><span>保留服务商要求的路径前缀和版本号；测试配置页会按协议补全并显示最终请求地址。</span></span></label>
+        </div>
+        <div class="th-save-row"><button type="button" class="th-save-button" id="th-save-connection">保存测试对象</button><button type="button" class="th-link-button" id="th-cancel-edit" hidden>取消编辑</button><label class="th-check" id="web-clear-key-row" hidden><input type="checkbox" id="web-clear-key">清除已保存密钥</label><span class="th-small" id="th-connection-message" aria-live="polite">密钥加密保存在本机，不在页面和历史任务中回显。</span></div>
+      </section>
+      <section class="th-panel" aria-labelledby="th-object-list-heading">
+        <h3 id="th-object-list-heading">已保存测试对象</h3>
+        <div class="th-table-wrap"><table class="th-object-table"><thead><tr><th scope="col">对象名称</th><th scope="col">接口基础地址</th><th scope="col">操作</th></tr></thead><tbody id="th-object-rows"><tr><td colspan="3">暂无测试对象，填写上方信息后保存。</td></tr></tbody></table></div>
+        <div id="th-delete-object-confirm" class="th-notice" role="group" aria-labelledby="th-delete-object-text" hidden><p id="th-delete-object-text"></p><div class="th-save-row"><button type="button" class="th-link-button th-task-delete" id="th-confirm-delete-object">确认删除</button><button type="button" class="th-link-button" id="th-cancel-delete-object">取消</button></div></div>
+        <p class="th-note" id="th-object-list-message" aria-live="polite"></p>
+      </section>
+      </div>
+      <div data-stage-panel="2">
+      <div class="th-stage-heading"><h2>模型测试配置</h2><p class="th-small">选择测试对象，按框架默认规则配置后开始测试。</p></div>
+      <section class="th-panel" aria-label="本次测试对象与协议">
+        <div class="th-object-picker"><label class="th-field">测试对象<select id="th-test-object"><option value="">暂无测试对象</option></select></label><button type="button" class="th-link-button" id="th-new-object">新增测试对象</button></div>
+        <p class="th-note" id="th-object-guidance" aria-live="polite">暂无测试对象，新增后即可用于测试；也可以先配置下面的参数。</p>
+        <p class="th-note" id="th-current-object-detail" hidden></p>
+        <div class="th-mode" aria-label="框架测试模块"><button type="button" data-mode="perf" aria-pressed="false">性能压测</button><button type="button" data-mode="eval" aria-pressed="true">效果评测</button></div>
+        <div class="th-fields th-space">
+          <label class="th-field">模型名称<input type="text" id="th-model" data-native="MODEL_NAME" placeholder="填写本次要测试的模型名" autocomplete="off"><small class="th-default">同一测试对象可用于不同模型；模型名称按本次测试填写。</small></label>
+          <label class="th-field" id="th-protocol-field">接口协议<select id="th-protocol" data-native="PROTOCOL"><option value="">沿用框架默认</option><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic 原生</option></select></label>
+          <label class="th-field" id="th-provider-field">供应商名称（结果目录命名）<input type="text" id="th-provider-name" data-native="PROVIDER" placeholder="留空沿用框架默认：unknown"></label>
+        </div>
+        <p class="th-note" id="th-protocol-note">效果评测按当前代码使用 OpenAI 兼容接口。</p>
+        <p class="th-note" id="th-resolved-url" aria-live="polite" hidden></p>
+        <div class="th-save-row"><button type="button" class="th-link-button" id="web-check-connection">检查连通性</button><span id="web-connection-result" class="th-small" role="status">尚未检查</span></div>
+        <p class="th-note">按当前模型和协议发送 1 次最小请求，输出上限 1 token；可能计入服务商用量。开始测试时会重新检查。</p>
+      </section>
+      <p class="th-note th-default-heading">以下为框架内置默认值。留空沿用默认规则；每项任务使用独立配置和输出目录。</p>
+      <section class="th-panel" id="th-eval-panel" aria-labelledby="th-eval-heading">
+        <h3 id="th-eval-heading">评测数据集</h3>
+        <label class="th-check"><input type="checkbox" id="th-all-datasets" data-native="--datasets all"><span>使用框架的 all 范围</span></label>
+        <p class="th-note" id="th-all-note" hidden>框架 all 默认排除 AIME25、AIME2026 和 SWE-Bench Pro；仍可单独选择它们。</p>
+        <div class="th-grid" id="th-datasets" aria-label="框架已注册的 18 个数据集"></div>
+        <div class="th-notice" id="th-dependencies" role="status" hidden></div>
+        <div id="th-judge-fields" class="th-space" hidden>
+          <h3>裁判模型（Judge）</h3>
+          <div class="th-fields th-space">
+            <label class="th-field">模型名称<input type="text" id="th-judge-model" data-native="--judge_model" placeholder="框架默认：deepseek-v4-pro"></label>
+            <label class="th-field">接口基础地址<input type="url" id="th-judge-url" data-native="--judge_base_url" placeholder="框架默认：https://api.deepseek.com/v1"></label>
+            <label class="th-field">API Key<input type="password" id="web-judge-key" data-native="--judge_api_key" placeholder="填写裁判模型密钥" autocomplete="new-password"></label>
+          </div>
+        </div>
+        <label class="th-field th-space" id="th-sandbox-field" hidden>Docker Sandbox 配置<textarea rows="2" id="th-sandbox" data-native="--sandbox" placeholder="填写框架要求的 Sandbox 配置"></textarea></label>
+        <details class="th-advanced"><summary>高级设置 · 留空沿用框架参数</summary><div class="th-fields">
+          <label class="th-field">每数据集最多评测题数<input id="th-limit" data-native="--limit" type="number" min="1" step="1" placeholder="留空沿用框架默认"></label>
+          <label class="th-field">重复次数<input id="th-repeats" data-native="--repeats" type="number" min="1" step="1" placeholder="留空沿用各数据集默认值"></label>
+          <label class="th-field">同时评测题数<input id="th-batch" data-native="--eval_batch_size" type="number" min="1" step="1" placeholder="留空沿用各数据集默认值"></label>
+        </div><p class="th-note">卡片显示框架的默认轮次与并发；以上填写值覆盖本次所选数据集的对应参数。实际样本范围还受数据集子集配置影响。</p></details>
+      </section>
+      <section class="th-panel" id="th-perf-panel" aria-labelledby="th-perf-heading" hidden>
+        <h3 id="th-perf-heading">性能压测参数</h3>
+        <label class="th-field">执行方式<select id="th-perf-command" data-native="perf/run.sh subcommand"><option value="bench">单档压测（bench）</option><option value="bench-all">多档与并发梯度（bench-all）</option></select></label>
+        <div id="th-single-fields" class="th-fields th-space">
+          <label class="th-field">输入长度<select id="th-bucket" data-native="bench bucket"><option value="">请选择输入长度</option><option>1k</option><option>9k</option><option>16k</option><option>32k</option><option>64k</option><option>128k</option><option>200k</option><option>512k</option><option>1m</option></select></label>
+          <label class="th-field">请求数<input id="th-number" data-native="bench N" type="number" step="1" placeholder="留空沿用框架默认：500"></label>
+          <label class="th-field">并发数<input id="th-parallel" data-native="bench P" type="number" step="1" placeholder="留空沿用框架默认：10"></label>
+        </div>
+        <div id="th-matrix-fields" class="th-space" hidden>
+          <div class="th-fields">
+            <label class="th-field th-wide">输入长度列表（空格分隔）<input type="text" id="th-buckets" data-native="BUCKETS" placeholder="默认：1k 9k 16k 32k 64k 128k 200k 512k"></label>
+            <label class="th-field th-wide">并发梯度（空格分隔）<input type="text" id="th-ladder" data-native="CONCURRENCY_LADDER" placeholder="默认：1 8 32 64 128"></label>
+            <label class="th-field">档间冷却时间（秒）<input type="number" id="th-cooldown" data-native="BUCKET_COOLDOWN" step="1" placeholder="框架默认：120"></label>
+            <label class="th-field">成功率早停阈值（%）<input type="number" id="th-success" data-native="SUCCESS_RATE_MIN" step="any" placeholder="框架默认：0，关闭早停"></label>
+          </div>
+          <div class="th-rules"><p>默认不测 1m 档；可在输入长度列表中显式指定。</p><p>未指定并发梯度时，200k 档额外补充并发 16。</p><p>各输入长度的并发上限：1k / 9k / 16k / 32k → 128；64k → 64；128k → 32；200k → 16；512k / 1m → 8。</p><p>请求数由框架按并发档位决定，不为每个组合预填统一值。</p></div>
+          <details class="th-advanced"><summary>按输入长度覆盖请求数（可选）</summary><div class="th-fields" id="th-bucket-numbers"></div><p class="th-note">留空沿用框架规则：并发 1 / 4 / 8 / 16 / 32 / 64 / 128，分别运行 20 / 40 / 60 / 80 / 120 / 200 / 400 次请求；其他并发为 100 次。</p></details>
+        </div>
+        <details class="th-advanced"><summary>高级设置</summary><div class="th-fields">
+          <label class="th-field">预热请求数<input id="th-warmup" data-native="WARMUP_NUM" type="number" min="0" step="1" placeholder="框架默认：4"></label>
+          <label class="th-field">Tokenizer 名称或路径<input id="th-tokenizer" data-native="TOKENIZER" type="text" placeholder="留空按框架规则选择"></label>
+        </div><div class="th-rules"><p id="th-tokenizer-rule"></p><p>512k / 1m 档的默认 Tokenizer 为 zai-org/GLM-4.6；已有 DATASET_TOKENIZER 优先，其次为显式指定的 TOKENIZER。</p></div><details class="th-advanced"><summary>查看模型名与默认 Tokenizer 的对应规则</summary><div class="th-rules" id="th-tokenizer-rules"></div></details></details>
+      </section>
+      <section class="th-panel" aria-label="开始测试">
+        <h3>运行环境与数据</h3>
+        <p class="th-note">按本次选择检查框架依赖、数据集和 Tokenizer。可在新增测试对象前提前准备；检查不会调用模型，准备会联网安装或下载缺失项。</p>
+        <p class="th-note">下载源：魔搭社区优先；Tokenizer 下载失败后尝试 HF 镜像（hf-mirror.com）。Hugging Face 资源默认走该镜像，压测数据仍从项目仓库拉取。</p>
+        <div class="th-save-row"><button type="button" class="th-link-button" id="web-check-environment">检查环境</button><button type="button" class="th-link-button" id="web-prepare-environment">准备缺失项</button></div>
+        <p class="th-note" id="web-environment-status" role="status">尚未检查。系统组件或需要授权的数据会单独说明。</p>
+        <div class="th-table-wrap" id="web-environment-items"></div>
+        <details class="th-advanced" id="web-environment-log-panel" hidden><summary>检查与准备日志</summary><pre id="web-environment-log" style="white-space:pre-wrap;max-height:280px;overflow:auto;font-size:12px"></pre></details>
+        <div class="th-footer"><div class="th-current" aria-live="polite"><strong id="th-selection-summary"></strong><p class="th-note" id="th-selection-detail"></p></div><button type="button" class="th-save-button" id="web-start">开始测试</button></div>
+        <p class="th-note">开始前自动检查环境和连通性。检查通过后创建后台任务；缺少组件或数据时，先点击“准备缺失项”。</p>
+      </section>
+      </div>
+      <div data-stage-panel="3" hidden>
+      <div class="th-stage-heading"><h2>历史任务</h2><p class="th-small">通过每条任务的操作栏查看详情、重放或删除任务。</p></div>
+      <section class="th-panel" aria-labelledby="th-history-heading">
+        <h3 id="th-history-heading">任务列表</h3>
+        <div class="th-table-wrap"><table class="th-history-table"><thead><tr><th scope="col">任务</th><th scope="col">测试对象</th><th scope="col">测试类型</th><th scope="col">运行时间</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead><tbody id="web-history-rows"><tr><td colspan="6">暂无测试任务。</td></tr></tbody></table></div>
+        <p class="th-note">查看：打开任务详情，展示结论、当次配置、报告和日志。重放：带入该任务配置，再开始一次测试。删除：确认后删除该任务。</p>
+      </section>
+      </div>
+<div data-stage-panel="4" hidden>
+  <button type="button" class="th-link-button" data-stage="3">返回历史任务</button>
+  <div class="th-heading th-space"><div><h2 id="web-task-title"></h2><p class="th-note" id="web-task-meta"></p></div><span id="web-task-status"></span></div>
+  <p id="web-task-error" class="th-notice" hidden></p>
+  <div class="th-mode th-space" aria-label="任务详情"><button type="button" data-task-tab="results">测试结果</button><button type="button" data-task-tab="config">当次配置</button><button type="button" data-task-tab="reports">报告与日志</button></div>
+  <section class="th-panel th-space" id="web-task-results"></section>
+  <section class="th-panel th-space" id="web-task-config" hidden></section>
+  <section class="th-panel th-space" id="web-task-reports" hidden><h3>报告文件</h3><div id="web-artifacts"></div><h3 class="th-space">运行日志</h3><pre id="web-task-log" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:500px;overflow:auto"></pre></section>
+</div>
+
+    </main>
+  </div>
+</div>
+<script src="/app.js" defer></script></body></html>

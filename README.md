@@ -20,7 +20,10 @@
 ```
 ├── README.md / README_EN.md   # 本说明（中文 / 英文）
 ├── .gitignore                 # 产物、数据集缓存、密钥不入库（数据集走 Git LFS）
-└── thvv/                      # 所有入口均在 thvv/ 下（先 cd thvv 再操作）
+├── WEB_README.md              # 网页部署、环境准备与使用说明
+├── web/                       # 本地网页控制台及服务
+├── 启动测试网页.command       # macOS 双击启动网页
+└── thvv/                      # 原框架命令行入口（先 cd thvv 再操作）
     ├── quickstart.sh          # 一键入口（check / install / perf / eval）
     ├── cli.py                 # 统一 CLI：python3 thvv/cli.py perf|eval|check|install ...
     ├── configs/
@@ -47,7 +50,17 @@
 
 ---
 
-## 快速开始
+## 网页控制台
+
+**Token Vendor Verifier** 提供测试对象管理、测试配置、环境与连通性检查，以及历史任务的查看、重放和删除。在项目根目录运行：
+
+```bash
+bash web/start.sh
+```
+
+浏览器打开 http://127.0.0.1:8765 。需要 Python 3.11 或更新版本；依赖、所选数据集和 Tokenizer 可在网页中检查并准备。完整部署方式、默认规则和下载源说明见 [网页使用说明](WEB_README.md)。
+
+## 命令行快速开始
 
 ### 1. 配置
 

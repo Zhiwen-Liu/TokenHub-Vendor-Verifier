@@ -1,6 +1,10 @@
 # Python 构建产物
 __pycache__/
 *.pyc
+.venv-web/
+.venv-engine/
+.thvv-web/
+.pytest_cache/
 
 # 评测产物与缓存（体积大、可再生，不进版本库）
 thvv/eval/results/
