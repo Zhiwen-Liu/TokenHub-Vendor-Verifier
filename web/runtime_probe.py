@@ -24,7 +24,8 @@ class OfflineCacheMiss(BaseException):
 
 
 def offline():
-    os.environ.update(HF_HUB_OFFLINE='1', HF_DATASETS_OFFLINE='1', MODELSCOPE_OFFLINE='1')
+    os.environ.update(HF_HUB_OFFLINE='1', HF_DATASETS_OFFLINE='1', MODELSCOPE_OFFLINE='1',
+                      LITELLM_LOCAL_MODEL_COST_MAP='True')
     def deny(*args, **kwargs):
         raise OfflineCacheMiss('本地缓存不完整，加载器需要访问远端数据源')
     socket.socket.connect = deny
@@ -42,14 +43,15 @@ def load_native():
     return native
 
 
-def load_data(name, options):
+def load_data(name, options, prepare=False):
     # Build the actual native command to preserve its subset, hub and local mirror rules.
     native = load_native()
     sys.argv = ['run_eval.py', '--model_name', 'environment-check', '--base_url', 'http://127.0.0.1:1/v1', '--api_key', 'unused', '--datasets', name]
     if options.get('limit'):
         sys.argv += ['--limit', options['limit']]
     args = native.parse_args()
-    command, _ = native.build_eval_command(args, name)
+    # Explicit preparation may repair an incomplete snapshot; checks remain offline.
+    command, _ = native.build_eval_command(args, name, use_cached_tau2=not prepare)
     from evalscope.arguments import add_argument
     from evalscope.config import TaskConfig
     from evalscope.api.registry import get_benchmark
@@ -99,7 +101,7 @@ def main():
         offline()
     try:
         if command.endswith('data'):
-            result = load_data(value, options)
+            result = load_data(value, options, prepare=command.startswith('prepare-'))
         elif command.endswith('tokenizer'):
             resolve_tokenizer(value, download=command.startswith('prepare-'))
             result = {'detail': 'Tokenizer 本地加载通过'}

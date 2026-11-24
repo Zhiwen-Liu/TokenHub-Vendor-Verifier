@@ -11,6 +11,7 @@ import sys
 from urllib.parse import urlsplit, urlunsplit
 
 from thvv.perf.scripts.setup_tokenizer import configure_downloads
+from thvv.prepare_linux import runtime_env
 
 ROOT = Path(__file__).resolve().parents[1]
 BUCKETS = ['1k', '9k', '16k', '32k', '64k', '128k', '200k', '512k', '1m']
@@ -89,7 +90,7 @@ def engine_python():
     return Path(os.environ.get('THVV_ENGINE_PYTHON', ROOT / '.venv-engine/bin/python')).absolute()
 
 
-def engine_env():
+def engine_env(data_dir=None):
     env = dict(os.environ)
     env.pop('DATASET_DIR', None)
     env.pop('PYTHONPATH', None)
@@ -99,6 +100,7 @@ def engine_env():
     env['PATH'] = str(engine_python().parent) + os.pathsep + env.get('PATH', '')
     env['PYTHONUNBUFFERED'] = '1'
     env['THVV_ALLOW_EMPTY_API_KEY'] = '1'
+    env = runtime_env(env, data_dir or os.environ.get('THVV_WEB_DATA', ROOT / '.thvv-web'))
     return configure_downloads(env)
 
 

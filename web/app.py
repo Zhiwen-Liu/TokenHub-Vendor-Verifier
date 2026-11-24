@@ -231,6 +231,9 @@ class Runner:
         status, error, code = 'failed', '', None
         try:
             cmd, env = engine.prepare_run(task, workspace, task['secrets'])
+            # Use the same managed Java as this console's environment check.
+            from thvv.prepare_linux import runtime_env
+            env = runtime_env(env, self.store.directory)
             with (folder / 'run.log').open('w') as log:
                 self.process = subprocess.Popen(cmd, cwd=workspace, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', start_new_session=True)
                 for line in self.process.stdout:

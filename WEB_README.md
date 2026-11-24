@@ -47,12 +47,39 @@ git lfs pull --include='thvv/perf/datasets_clean/perf_zh_1k.jsonl'
 1. 检出包含网页功能的 `codex/token-vendor-verifier-web` 分支，确认项目目录包含 `web/`。保留 Git 元数据，方便按档位拉取 Git LFS 文件；不要把源机器的 `.venv-web`、`.venv-engine` 当作可跨机器复制的环境。
 2. 安装 Python 3.11 或更新版本（本次验证用 3.13）、Git、Git LFS，并确保可访问软件包和数据源。Linux 需要可创建虚拟环境的 Python；Windows 请在 WSL2 中运行，当前后台使用 Bash 和 Unix 进程管理。
 3. 启动网页。选择准备测试的类型、数据集或压测长度，先在运行环境中点击“准备缺失项”，再准备数据分组的缺失项；只想了解就绪情况时，选择“仅检查”。压测需按将使用的模型名称推断 Tokenizer，或填写明确的 Tokenizer；这一步无需测试对象、API 密钥和裁判密钥。
-4. 等待准备结束，查看逐项结果与日志。Docker、Java 等系统组件由使用者安装并启动，网页会检测但不会安装系统服务。受限数据源若要求账户授权，需要先在该机器完成数据源登录。
+4. 等待准备结束，查看逐项结果与日志。Linux 上可自动准备 Java 8，并在具备管理员权限时安装、启动 Docker；权限要求与支持范围见下文。受限数据源若要求账户授权，需要先在该机器完成数据源登录。
 5. 保存测试对象，在测试配置中填写模型和协议，点击“检查连通性”，或直接“开始测试”执行自动检查。
 
 可提前保存的数据包括仓库的 `thvv/perf/datasets_clean/`、`thvv/eval/datasets/`，以及当前用户的 Hugging Face、ModelScope 和 EvalScope 缓存（通常在 `~/.cache/` 下；以实际环境配置为准）。迁移后重新执行检查，确认文件可读取且加载成功。缓存包含绝对路径时不能直接照搬，网页会将无法加载的项列为未就绪。
 
-如果目标机器不能联网，需要在**相同操作系统、CPU 架构和 Python 版本**的联网环境准备依赖包和缓存。依赖可用 `pip download` 按 `web/requirements.txt`、`web/engine-requirements.txt` 及所选可选依赖下载，再通过 `pip install --no-index --find-links` 离线安装。当前网页的准备操作面向联网准备，没有离线包上传或系统软件安装功能。
+如果目标机器不能联网，需要在**相同操作系统、CPU 架构和 Python 版本**的联网环境准备依赖包和缓存。依赖可用 `pip download` 按 `web/requirements.txt`、`web/engine-requirements.txt` 及所选可选依赖下载，再通过 `pip install --no-index --find-links` 离线安装。当前网页的准备操作面向联网准备，没有离线包上传功能；系统组件的自动准备范围见下文。
+
+## tau2-bench 依赖准备
+
+`tau2_bench` 使用框架指定的 `sierra-research/tau2-bench@v0.2.0` 源码。网页和原始评测入口的自动补装会下载同一官方标签的 ZIP 归档，避免 pip 先克隆仓库当前默认分支导致下载缓慢；仍核对官方仓库、来源标签与导入结果，不改用较新的 τ³-bench。该标签自身的 Python 包版本声明为 `0.2.1-dev`，因此按源码标签判断是否符合，而不是把包版本号误判为安装了错误版本。
+
+先选择 tau2-bench，在“运行环境”点击“准备缺失项”，通过后再检查或准备数据。数据操作发现缺少依赖时显示“等待依赖”与具体操作指引，不重复下载，也不会擅自安装环境组件。原始命令行入口在缺失 tau2 时也会显式安装其源码，且按脚本位置定位依赖清单，不依赖当前工作目录。tau2 的数据检查和实际评测优先读取 ModelScope 本地快照；显式准备时仍允许下载并修复不完整缓存。离线检查使用 LiteLLM 随包提供的模型元数据，避免其导入时刷新远端价格表造成“数据未准备”的误报。
+
+## Linux 系统组件自动准备
+
+在运行环境中选择“准备缺失项”，只准备当前所选数据集需要的组件；“仅检查”不会安装、下载或启动 Docker。已有且符合要求的组件直接复用。准备过程、失败原因与实际版本会显示在网页中。
+
+- **Java**：`pycocoevalcap==1.2` 的上游要求 Java 8，框架未锁定补丁版本。复用可用的 Java 8；否则从 Azul 官方社区发行源下载适用于 Linux x86_64 / aarch64 的 Java 8 JRE，校验 SHA-256、安全解压并实际运行版本检查。安装到数据目录的 `runtimes/java-8/`，无需系统管理员权限；只为本项目的检查及评测进程设置 `JAVA_HOME` 和 `PATH`。支持 glibc Linux，安全解压需 Python 3.11.8 或更新版本；其他平台仍可使用手动安装的 Java 8。
+- **Docker**：先验证现有服务与当前账号访问权限。Ubuntu、Debian 使用 Docker 官方 APT 稳定源；CentOS、Rocky Linux、AlmaLinux、Oracle Linux、RHEL、Fedora 使用相应官方 RPM 稳定源。未安装时准备 Engine、CLI、containerd；已安装但未运行时通过 systemd 启动。不会改成开机自启，不删除旧容器、镜像或卷，不自动卸载冲突组件。框架未锁定 Docker 版本，页面显示实际服务端版本。
+- Docker 的系统安装与启动需要 root，或当前账号已有免交互 sudo 权限。网页不收集管理员密码。权限不足时，请管理员在项目目录运行 `sudo bash thvv/prepare-docker.sh`。服务安装完成后，还需确保运行网页的账号具有 Docker 访问权限，再重启该账号的登录会话和网页服务。加入 `docker` 组会赋予接近 root 的权限，这一步由管理员决定并执行，网页不会自动修改用户组或放宽套接字权限。
+- 已指定其他 Docker 主机或 context 时，准备操作不会尝试管理远端服务；容器内、无 systemd 的 Linux，以及未支持的发行版，需由宿主机管理员准备 Docker。服务验证通过不保证全部任务镜像已下载或兼容当前架构；镜像仍遵循框架运行流程。
+
+也可在部署阶段调用同一套检查/准备入口（不依赖网页）：
+
+```sh
+python3 thvv/prepare_linux.py check java --data-dir .thvv-web
+python3 thvv/prepare_linux.py prepare java --data-dir .thvv-web
+python3 thvv/prepare_linux.py prepare docker --data-dir .thvv-web
+```
+
+自定义 `THVV_WEB_DATA` 时，命令行通过 `--data-dir` 指定同一目录。Java 的独立运行环境会自动供网页创建的任务使用；自行运行原始框架命令时，需按该目录配置 `JAVA_HOME` 和 `PATH`。
+
+依据：[评分组件 Java 要求](https://github.com/salaniz/pycocoevalcap#requirements)、[Azul 官方安装元数据接口](https://docs.azul.com/core/install/metadata-api)、[Docker 官方安装文档](https://docs.docker.com/engine/install/)、[Docker Linux 账号权限](https://docs.docker.com/engine/install/linux-postinstall/)。
 
 ## 开始前检查
 
@@ -71,7 +98,7 @@ git lfs pull --include='thvv/perf/datasets_clean/perf_zh_1k.jsonl'
 
 ## 清理
 
-- **清理依赖环境**：预览并移除本项目的 `.venv-engine`，保留网页运行环境、全部对象和历史任务，以及数据缓存。外部 `THVV_ENGINE_PYTHON` 环境不自动删除，Docker / Java 等系统组件不会卸载。
+- **清理依赖环境**：预览并移除本项目的 `.venv-engine`，保留网页运行环境、全部对象和历史任务，以及数据缓存。同时可清理本项目自动下载的 Java 8。外部 `THVV_ENGINE_PYTHON` 环境不自动删除，Docker 和系统已有 Java 不会卸载。
 - **清理数据缓存**：预览本项目 `thvv/eval/datasets/datasets/` 下生成的评测缓存；性能模式同时列出所选档位的工作文件和所选 Tokenizer 的魔搭 / HF 缓存。压测文件校验与仓库版本一致后恢复为 Git LFS 下载占位文件；自行修改的文件保留。包含模型权重的 Tokenizer 仓库缓存不会自动删除。
 - 预览列出路径、估算大小及共享缓存说明，点击“确认清理”后执行。预览 5 分钟有效，内容变化后必须重新预览；测试、下载或检查进行中不能清理。
 - 保留测试对象、密钥、历史任务和报告、手动放置的数据、Git LFS 原始对象和第三方数据集原始共享缓存。清理所列 Tokenizer 共享缓存可能影响使用同一缓存的其他项目。清理后对应检查结果失效，重新准备和检查后可再次测试。

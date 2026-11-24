@@ -30,7 +30,7 @@ def size(path):
                for f in files)
 
 
-def inventory(scope, spec, tokenizer_names):
+def inventory(scope, spec, tokenizer_names, data_dir=None):
     entries, notes = [], []
 
     def add(path, root, label, replacement=None):
@@ -47,7 +47,11 @@ def inventory(scope, spec, tokenizer_names):
         if engine.engine_python() != (target / 'bin/python').absolute():
             raise ValueError('当前使用外部评测环境，网页不会删除外部环境；请在该环境中手动管理依赖。')
         add(target, engine.ROOT, '本项目评测依赖环境（.venv-engine）')
-        notes.append('仅移除评测依赖；网页服务、测试对象、API 密钥、历史任务和数据缓存均保留。Docker、Java 等系统组件不会卸载。')
+        runtime_root = Path(data_dir or os.environ.get('THVV_WEB_DATA', engine.ROOT / '.thvv-web')) / 'runtimes'
+        managed_java = runtime_root / 'java-8'
+        if (managed_java / '.thvv-managed.json').is_file():
+            add(managed_java, runtime_root, '本项目自动准备的 Java 8')
+        notes.append('仅移除评测依赖及本项目自动准备的 Java；网页服务、测试对象、API 密钥、历史任务和数据缓存均保留。Docker 和系统已有 Java 不会卸载。')
     else:
         add(engine.ROOT / 'thvv/eval/datasets/datasets', engine.ROOT / 'thvv/eval/datasets', '本项目效果评测生成的数据缓存')
         if spec['mode'] == 'perf':

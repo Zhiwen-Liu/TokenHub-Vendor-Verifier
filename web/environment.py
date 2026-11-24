@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -17,6 +16,7 @@ import uuid
 
 from . import engine
 from .diagnostics import failure_details
+from thvv.prepare_linux import inspect_component
 
 
 def runtime_spec(spec):
@@ -53,6 +53,7 @@ def dependency_stamp():
     paths = [python, python.parent.parent / 'pyvenv.cfg',
              engine.ROOT / 'thvv/eval/requirements.txt', engine.ROOT / 'thvv/perf/requirements.txt',
              engine.ROOT / 'web/engine-requirements.txt', engine.ROOT / 'web/dependency_probe.py']
+    paths.extend([engine.ROOT / 'thvv/prepare_linux.py', engine.ROOT / 'thvv/prepare-docker.sh'])
     paths.extend(python.parent.parent.glob('lib/python*/site-packages/*.dist-info/METADATA'))
     values = []
     for path in sorted(paths):
@@ -134,7 +135,12 @@ class Environment:
             return {'environment': environment_ready, 'data': data_ready}
 
     def validated(self, spec):
-        return all(self.readiness(spec).values())
+        return all(self.readiness(spec).values()) and self.system_ready(spec)
+
+    def system_ready(self, spec):
+        required = dependency_requirements(spec) & {'java', 'docker'}
+        env = engine.engine_env(self.directory.parent)
+        return all(inspect_component(component, env)['ready'] for component in sorted(required))
 
     def start(self, spec, prepare=False, scope='environment'):
         with self.gate, self.lock:
@@ -144,7 +150,7 @@ class Environment:
                 raise ValueError('环境检查或准备正在进行，请等待结束')
             if prepare and self.tasks_active():
                 raise ValueError('请等当前测试任务结束后再准备环境，避免安装过程影响正在运行的测试')
-            if prepare and scope == 'environment' and self.readiness(spec)['environment']:
+            if prepare and scope == 'environment' and self.readiness(spec)['environment'] and self.system_ready(spec):
                 # A valid dependency check authorizes reuse, not another installation.
                 self.current = copy.deepcopy(self.groups[scope])
                 now = time.time()
@@ -173,7 +179,7 @@ class Environment:
             if self.busy() or self.tasks_active():
                 raise ValueError('请等待测试和环境操作结束后再清理')
             names = tokenizers(spec) if scope == 'data' and spec['mode'] == 'perf' else []
-            plan = inventory(scope, spec, names)
+            plan = inventory(scope, spec, names, data_dir=self.directory.parent)
             plan.update(id=uuid.uuid4().hex, scope=scope, created=time.time())
             self.cleanup_plan = plan
             return {'id': plan['id'], 'scope': scope, 'bytes': plan['bytes'], 'notes': plan['notes'],
@@ -239,7 +245,7 @@ class Environment:
         path = self.directory / 'command.log'
         with path.open('w+') as output:
             try:
-                self.process = subprocess.Popen(args, cwd=engine.ROOT, env=env or engine.engine_env(),
+                self.process = subprocess.Popen(args, cwd=engine.ROOT, env=env or engine.engine_env(self.directory.parent), stdin=subprocess.DEVNULL,
                                                 stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             except OSError as exc:
                 self.log(str(exc) + '\n')
@@ -301,12 +307,36 @@ class Environment:
         reused = ok
         if not ok and prepare:
             self.item(key, name, 'preparing', '正在安装框架要求的可选依赖', True)
-            installed = self.command([str(engine.engine_python()), '-m', 'pip', 'install', '-r', 'web/engine-requirements.txt', requirement], timeout=1800)
+            # The same pinned source tag, without cloning the current default branch first.
+            source = 'https://github.com/sierra-research/tau2-bench/archive/refs/tags/v0.2.0.zip' if module == 'tau2' else requirement
+            installed = self.command([str(engine.engine_python()), '-m', 'pip', 'install', '-r', 'web/engine-requirements.txt', source], timeout=1800)
             report = self.dependency_report('optional', requirement, module)
             ok = installed and report['ready']
         self.item(key, name, 'ready' if ok else 'missing', '版本与组件加载检查通过' if ok else '组件缺失、版本不符或加载失败，在运行环境中点击“准备缺失项”修复。', True,
                   versions=report.get('versions', []), error_details=report.get('error_details', ''),
                   disposition=('reused' if reused else 'prepared') if ok else None)
+
+    def system_component(self, component, label, prepare):
+        self.item(component, label, 'checking', '检查实际版本与可用性')
+        result = inspect_component(component, engine.engine_env(self.directory.parent))
+        reused = result['ready']
+        if not reused and prepare and result['automatic']:
+            message = '下载并校验 Java 8，安装到项目数据目录' if component == 'java' else '按 Linux 发行版准备并启动 Docker，需要相应管理员权限'
+            self.item(component, label, 'preparing', message, True)
+            path = self.directory / f'{component}-report.json'
+            path.unlink(missing_ok=True)
+            self.command([sys.executable, str(engine.ROOT / 'thvv/prepare_linux.py'), 'prepare', component,
+                          '--data-dir', str(self.directory.parent), '--output', str(path)], timeout=1800)
+            if path.is_file():
+                result = json.loads(path.read_text())
+            else:
+                result = {**result, 'ready': False, 'detail': '自动准备未完成或超时，请展开日志查看原因，修复后重试'}
+        state = ('online' if component == 'docker' else 'ready') if result['ready'] else 'missing' if result['automatic'] else 'manual'
+        required = 'Java 8（评分组件要求；框架未锁定补丁版本）' if component == 'java' else 'Docker 服务可访问（框架未锁定版本）'
+        self.item(component, label, state, result['detail'], result['automatic'],
+                  versions=[{'name': 'Java' if component == 'java' else 'Docker Engine', 'required': required,
+                             'installed': result.get('version') or '未检测到', 'matches': result['ready']}],
+                  disposition=('reused' if reused else 'prepared') if result['ready'] else None)
 
     def check_environment(self, spec, prepare):
         self.item('core', '评测框架核心依赖', 'checking', '检查版本与实际导入', True)
@@ -328,11 +358,9 @@ class Environment:
         registry, _ = engine.registry()
         chosen = [registry[d] for d in spec['datasets']]
         if any(d.get('requires_docker') or d.get('requires_sandbox') for d in chosen):
-            ok = bool(shutil.which('docker')) and self.command(['docker', 'info', '--format', '{{.ServerVersion}}'], timeout=15)
-            self.item('docker', 'Docker 服务', 'online' if ok else 'manual', '服务可用；任务镜像仍按框架在运行时准备，未验证全部镜像可用性' if ok else '请安装并启动 Docker，再重新检查（网页不安装系统服务）')
+            self.system_component('docker', 'Docker 服务', prepare)
         if 'msr_vtt' in spec['datasets']:
-            ok = bool(shutil.which('java')) and self.command(['java', '-version'], timeout=10)
-            self.item('java', 'Java（MSR-VTT METEOR 评分）', 'ready' if ok else 'manual', 'Java 可用' if ok else '请安装 Java 后重新检查')
+            self.system_component('java', 'Java（MSR-VTT METEOR 评分）', prepare)
         if core:
             if 'tau2_bench' in spec['datasets']:
                 self.package('tau2-bench', 'tau2', 'git+https://github.com/sierra-research/tau2-bench@v0.2.0', prepare)
@@ -362,14 +390,16 @@ class Environment:
             self.item(key, label, 'checking', '正在尝试从本地加载', True)
             result = self.probe(kind, name, spec['options'])
             reused = result['ready']
-            if not result['ready'] and prepare:
+            missing_dependency = result.get('error_code') == 'missing_dependency'
+            if not result['ready'] and prepare and not missing_dependency:
                 self.item(key, label, 'preparing', '按框架规则下载并加载；大型数据可能耗时较长', True)
                 result = self.probe(kind, name, spec['options'], True)
+                missing_dependency = result.get('error_code') == 'missing_dependency'
             online = bool(result.get('online_media'))
             detail = result['detail']
             if online:
                 detail += f"；{result['online_media']} 个媒体引用为在线地址，运行时仍需联网，未验证远端媒体可用性"
-            self.item(key, label, ('online' if online else 'ready') if result['ready'] else 'missing', detail, True,
+            self.item(key, label, ('online' if online else 'ready') if result['ready'] else 'blocked' if missing_dependency else 'missing', detail, True,
                       error_details=result.get('error_details', ''), error_code=result.get('error_code'),
                       disposition=('reused' if reused else 'prepared') if result['ready'] else None)
 

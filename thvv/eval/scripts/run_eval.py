@@ -37,6 +37,7 @@ import time
 import csv
 import shutil
 import argparse
+import importlib
 import subprocess
 import tarfile
 from datetime import datetime
@@ -479,16 +480,18 @@ def pre_check(args):
             try:
                 subprocess.run(
                     [sys.executable, '-m', 'pip', 'install', '-r',
-                     'requirements.txt', '-q'],
-                    check=True, timeout=120
+                     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'requirements.txt'),
+                     'https://github.com/sierra-research/tau2-bench/archive/refs/tags/v0.2.0.zip', '-q'],
+                    check=True, timeout=1800
                 )
                 sys.modules.pop('tau2', None)
+                importlib.invalidate_caches()
                 import tau2  # noqa: F401
                 print(f"  ✅ tau2-bench 安装成功")
             except Exception as e:
                 errors.append(
                     f"❌ tau2-bench 自动安装失败: {e}。"
-                    f"请手动: pip install -r requirements.txt"
+                    f"请在当前 Python 环境安装 git+https://github.com/sierra-research/tau2-bench@v0.2.0"
                 )
 
     # judge_strategy
@@ -634,7 +637,7 @@ def default_dataset_dir():
     return os.path.normpath(os.path.join(scripts_dir, '..', 'datasets'))
 
 
-def build_eval_command(args, dataset_key, run_dir=None):
+def build_eval_command(args, dataset_key, run_dir=None, *, use_cached_tau2=True):
     """为指定数据集构建 evalscope eval 命令。返回 (cmd_list, output_dir)"""
     ds_config = get_dataset_config(dataset_key)
     is_multimodal = bool(ds_config.get('multimodal'))
@@ -737,6 +740,16 @@ def build_eval_command(args, dataset_key, run_dir=None):
 
     # tau2_bench
     if dataset_key == 'tau2_bench':
+        # The dataset adapter otherwise calls ModelScope's online-only wrapper even
+        # when a snapshot is already cached. Reuse it for checks and evaluations.
+        if use_cached_tau2 and not dataset_args.get('tau2_bench', {}).get('local_path'):
+            try:
+                from modelscope.hub.snapshot_download import snapshot_download
+                cached = snapshot_download(repo_id='evalscope/tau2-bench-data', repo_type='dataset', local_files_only=True)
+                if os.path.isdir(cached):
+                    dataset_args.setdefault('tau2_bench', {})['local_path'] = cached
+            except Exception:
+                pass  # No local cache: the adapter retains its native download flow.
         dataset_args.setdefault('tau2_bench', {})['extra_params'] = {
             "user_model": args.model_name,
             "api_key": args.api_key,

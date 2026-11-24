@@ -6,7 +6,10 @@ def failure_details(error, *, kind='data', preparing=False, code=None):
     raw = str(error)
     lower = raw.lower()
     resource = 'Tokenizer' if kind == 'tokenizer' else '数据集'
-    if code == 'missing_cache':
+    if ('tau2' in lower or 'τ²-bench' in lower) and any(s in lower for s in ('importerror', 'modulenotfounderror', 'not found', 'no module named')):
+        message = '缺少 tau2-bench 组件，请先在“运行环境”点击“准备缺失项”安装框架指定的 v0.2.0，再检查或准备数据。'
+        code = 'missing_dependency'
+    elif code == 'missing_cache':
         message = f'{resource}尚未在本机准备，在数据分组中点击“准备缺失项”下载。'
     elif code == 'timeout' or any(s in lower for s in ('timed out', 'timeout', '超时')):
         message = '准备超时，可重试并复用已下载内容。' if preparing else '本地加载检查超时，请查看详情后重试。'
@@ -14,6 +17,7 @@ def failure_details(error, *, kind='data', preparing=False, code=None):
         message = '数据源需要访问授权，请先完成数据源登录或申请权限。'
     elif any(s in lower for s in ('modulenotfounderror', 'importerror', 'no module named')):
         message = '缺少所需组件，在运行环境中点击“准备缺失项”安装后重试。'
+        code = 'missing_dependency'
     elif 'no space left' in lower:
         message = '本机存储空间不足，请清理空间后重试。'
     elif any(s in lower for s in ('permissionerror', 'permission denied', 'read-only file system')):

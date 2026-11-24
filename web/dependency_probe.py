@@ -2,7 +2,9 @@
 from importlib import import_module, metadata
 import json
 from pathlib import Path
+import re
 import sys
+from urllib.parse import quote
 
 from packaging.requirements import Requirement
 
@@ -53,8 +55,13 @@ def check_optional(requirement, module):
             source = json.loads(dist.read_text('direct_url.json') or '{}')
             expected_url, expected_tag = requirement.removeprefix('git+').rsplit('@', 1)
             revision = source.get('vcs_info', {}).get('requested_revision', '')
+            matches = source.get('url', '').removesuffix('.git') == expected_url.removesuffix('.git') and revision == expected_tag
+            archive_url = expected_url.removesuffix('.git') + '/archive/refs/tags/' + quote(expected_tag, safe='') + '.zip'
+            digest = source.get('archive_info', {}).get('hashes', {}).get('sha256', '')
+            if source.get('url') == archive_url and re.fullmatch(r'[a-f0-9]{64}', digest):
+                revision, matches = expected_tag, True
             versions.append({'name': name, 'installed': dist.version, 'required': expected_tag,
-                             'source_revision': revision or '未确认', 'matches': source.get('url', '').removesuffix('.git') == expected_url.removesuffix('.git') and revision == expected_tag})
+                             'source_revision': revision or '未确认', 'matches': matches})
         if not versions:
             versions = [{'name': module, 'installed': None, 'required': requirement.rsplit('@', 1)[-1], 'matches': False}]
     else:

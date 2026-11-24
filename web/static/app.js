@@ -301,7 +301,7 @@
         let disclosure='';
         if(versions||item.error_details){
           disclosure='<details class="th-env-details" data-env-detail="'+esc(item.id)+'"'+(expanded.has(item.id)?' open':'')+'><summary>'+(versions?'查看版本信息':'查看错误详情')+'</summary>';
-          if(versions)disclosure+='<div class="th-table-wrap"><table class="th-env-versions"><thead><tr><th>组件</th><th>框架要求</th><th>本机版本</th><th>结果</th></tr></thead><tbody>'+versions+'</tbody></table></div><p class="th-note">按本地框架 6e7a150 的依赖文件核对。安装约束若不同，会另外列出。</p>';
+          if(versions)disclosure+='<div class="th-table-wrap"><table class="th-env-versions"><thead><tr><th>组件</th><th>框架要求</th><th>本机版本</th><th>结果</th></tr></thead><tbody>'+versions+'</tbody></table></div><p class="th-note">'+(item.id==='java'?'Java 8 来自框架使用的 pycocoevalcap 评分组件要求；自动准备使用 Azul 官方 Java 8 运行环境。':item.id==='docker'?'框架未锁定 Docker 版本；检查当前服务是否可用，安装时使用对应 Linux 发行版的 Docker 官方稳定源。':'按本地框架 6e7a150 的依赖文件核对。安装约束若不同，会另外列出。')+'</p>';
           if(item.error_details)disclosure+='<pre>'+esc(item.error_details)+'</pre>';
           disclosure+='</details>';
         }

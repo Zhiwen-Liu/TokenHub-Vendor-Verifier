@@ -118,7 +118,7 @@ def test_preparation_downloads_only_missing_selected_resources_and_rechecks(tmp_
 def test_environment_does_not_claim_ready_when_manual_component_missing(tmp_path, monkeypatch):
     env = Environment(tmp_path, threading.RLock(), lambda: False)
     monkeypatch.setattr(env, 'core_ready', lambda: True)
-    monkeypatch.setattr('web.environment.shutil.which', lambda name: None)
+    monkeypatch.setattr('web.environment.inspect_component', lambda *args: {'ready': False, 'automatic': False, 'detail': 'fixture missing'})
     monkeypatch.setattr(env, 'probe', lambda *args: {'ready': True, 'detail': '数据已缓存'})
     env.start({**SPEC, 'datasets': ['live_code_bench']})
     result = wait_job(env)
