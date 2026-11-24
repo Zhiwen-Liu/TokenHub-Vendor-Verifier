@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>登录 · Token Vendor Verifier</title>
+  <link rel="stylesheet" href="/login.css">
+  <script src="/login.js" defer></script>
+</head>
+<body>
+  <main class="login-card">
+    <div class="brand-mark" aria-hidden="true">TVV</div>
+    <p class="brand">Token Vendor Verifier</p>
+    <h1>登录控制台</h1>
+    <p class="intro">登录后管理测试对象、运行测试和查看结果。</p>
+    <form id="login-form">
+      <label for="username">账号</label>
+      <input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="200" autofocus>
+      <label for="password">密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
+      <p id="login-error" role="alert" hidden></p>
+      <button id="login-submit" type="submit">登录</button>
+      <p id="login-status" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+</body>
+</html>

@@ -5,10 +5,10 @@ import tarfile
 import time
 import zipfile
 
-from fastapi.testclient import TestClient
+from web.tests.auth_helpers import AuthenticatedClient as TestClient, create_app
 import pytest
 
-from web.app import create_app, publish_artifacts, redact
+from web.app import publish_artifacts, redact
 from web import connectivity, engine
 from web.environment import Environment
 
@@ -64,6 +64,8 @@ def test_replay_retains_original_endpoint_secret_and_parameters(client):
     assert 'secrets' not in original
     c.patch('/api/objects/' + obj['id'], json={'name': '修改后的对象', 'url': 'https://other.example.com/v1', 'api_key': 'different-secret'})
     c.delete('/api/objects/' + obj['id'])
+    assert c.delete('/api/tasks/' + original['id']).status_code == 409
+    store.execute("UPDATE tasks SET status='succeeded' WHERE id=?", (original['id'],))
     replay = c.post('/api/tasks/' + original['id'] + '/replay', json=request)
     assert replay.status_code == 201, replay.text
     replay = replay.json()
@@ -72,14 +74,12 @@ def test_replay_retains_original_endpoint_secret_and_parameters(client):
     assert replay['spec']['options'] == request['options']
     assert store.task(replay['id'], private=True)['secrets']['api_key'] == 'secret-original-123'
     assert 'secret-original-123' not in c.get('/api/tasks').text
-    assert c.delete('/api/tasks/' + original['id']).status_code == 409
-    store.execute("UPDATE tasks SET status='succeeded' WHERE id=?", (original['id'],))
     assert c.delete('/api/tasks/' + original['id']).status_code == 200
     assert c.get('/api/tasks/' + original['id']).status_code == 404
 
 
 def test_defaults_registry_and_protocol_validation(client):
-    c, _ = client
+    c, store = client
     meta = c.get('/api/meta').json()
     assert len(meta['datasets']) == 18
     assert meta['datasets']['arxivmath']['default_eval_batch_size'] == 15
@@ -88,14 +88,54 @@ def test_defaults_registry_and_protocol_validation(client):
     request = spec(obj)
     request['options'] = {'limit': '', 'repeats': ''}
     assert c.post('/api/tasks', json=request).json()['spec']['options'] == {}
+    store.execute("UPDATE tasks SET status='succeeded'")
     request['all'] = True
     request['judge_api_key'] = 'judge-fixture-key'
     created = c.post('/api/tasks', json=request).json()
     assert len(created['spec']['datasets']) == 15
+    store.execute("UPDATE tasks SET status='succeeded'")
     request['protocol'] = 'anthropic'
     assert c.post('/api/tasks', json=request).status_code == 422
     request['protocol'] = 'openai'; request['model'] = '../../escape'
     assert c.post('/api/tasks', json=request).status_code == 422
+
+
+@pytest.mark.parametrize('active,finished', [('queued', 'succeeded'), ('running', 'failed'), ('running', 'interrupted')])
+def test_active_task_blocks_start_and_replay_before_model_request(client, monkeypatch, active, finished):
+    c, store = client
+    obj = add_object(c)
+    request = spec(obj)
+    original = c.post('/api/tasks', json=request).json()
+    store.execute('UPDATE tasks SET status=? WHERE id=?', (active, original['id']))
+    monkeypatch.setattr(connectivity, 'check', lambda *args: pytest.fail('blocked submission must not call model'))
+    for path in ['/api/tasks', '/api/tasks/' + original['id'] + '/replay']:
+        response = c.post(path, json=request)
+        assert response.status_code == 409 and '等待结束' in response.text
+    assert len(c.get('/api/tasks').json()) == 1
+    store.execute('UPDATE tasks SET status=? WHERE id=?', (finished, original['id']))
+    monkeypatch.setattr(connectivity, 'check', lambda *args: {'ready': True})
+    assert c.post('/api/tasks', json=request).status_code == 201
+
+
+def test_simultaneous_starts_create_exactly_one_task(client, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    c, store = client
+    request = spec(add_object(c))
+    calls = []
+    def check(*args):
+        calls.append(1)
+        time.sleep(.05)
+        return {'ready': True}
+    monkeypatch.setattr(connectivity, 'check', check)
+    barrier = Barrier(2)
+    def start():
+        barrier.wait(timeout=2)
+        return c.post('/api/tasks', json=request).status_code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(start) for _ in range(2)]
+        assert sorted(f.result(timeout=5) for f in futures) == [201, 409]
+    assert calls == [1] and len(store.rows('SELECT id FROM tasks')) == 1
 
 
 def test_invalid_and_browser_cross_site_requests_do_not_leak_keys(client):

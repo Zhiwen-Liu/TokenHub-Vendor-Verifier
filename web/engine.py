@@ -29,6 +29,38 @@ def registry():
     return names['SUPPORTED_DATASETS'], names['ALL_EXCLUDED_DATASETS']
 
 
+def judge_defaults():
+    """Read the native CLI fallbacks without importing its runtime dependencies."""
+    names = {'--judge_model': 'model', '--judge_base_url': 'url'}
+    result = {}
+    tree = ast.parse((ROOT / 'thvv/eval/scripts/run_eval.py').read_text())
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == 'add_argument' and node.args
+                and isinstance(node.args[0], ast.Constant) and node.args[0].value in names):
+            continue
+        default = next(k.value for k in node.keywords if k.arg == 'default')
+        # Web runs isolate these environment variables and use the native fallback.
+        result[names[node.args[0].value]] = ast.literal_eval(default.args[1])
+    if result.keys() != {'model', 'url'}:
+        raise ValueError('无法读取框架裁判模型默认配置')
+    return result
+
+
+def requires_judge(spec):
+    datasets, _ = registry()
+    return spec['mode'] == 'eval' and any(datasets[d].get('requires_judge_model') for d in spec['datasets'])
+
+
+def judge_config(options):
+    defaults = judge_defaults()
+    model = options.get('judge-model', '').strip() or defaults['model']
+    url = options.get('judge-url', '').strip() or defaults['url']
+    if any(ord(c) < 32 for c in model):
+        raise ValueError('请填写有效裁判模型名称')
+    return {'model': model, 'url': base_url(url)}
+
+
 def base_url(value):
     value = value.strip()
     if any(ord(c) < 32 for c in value):

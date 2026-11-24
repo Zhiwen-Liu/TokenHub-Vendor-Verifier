@@ -2,13 +2,12 @@ import json
 import threading
 import time
 
-from fastapi.testclient import TestClient
+from web.tests.auth_helpers import AuthenticatedClient as TestClient, create_app
 import httpx
 import pytest
 
 from web import connectivity, engine
-from web.app import create_app
-from web.environment import Environment, fingerprint, tokenizers
+from web.environment import Environment, fingerprint, tokenizers, dependency_stamp
 from web.diagnostics import failure_details
 from web import dependency_probe
 from web.runtime_probe import offline, OfflineCacheMiss
@@ -73,12 +72,13 @@ def test_start_requires_fresh_environment_and_successful_live_request(tmp_path, 
         assert client.post('/api/tasks', json=body).status_code == 409
         assert calls == []
         env = app.state.environment
-        env.current = {'status': 'completed', 'ready': True, 'fingerprint': fingerprint(SPEC), 'finished': time.time()}
+        env.groups['environment'] = {'status': 'completed', 'ready': True, 'requirements': ['core'], 'stamp': dependency_stamp()}
+        env.groups['data'] = {'status': 'completed', 'ready': True, 'fingerprint': fingerprint(SPEC), 'finished': time.time(), 'stamp': dependency_stamp()}
         r = client.post('/api/tasks', json=body)
         assert r.status_code == 409 and '401' in r.text
         assert calls[-1][-1] == 'saved-key'
         assert client.get('/api/tasks').json() == []
-        env.current['finished'] = time.time() - 301
+        env.groups['data']['finished'] = time.time() - 301
         assert client.post('/api/tasks', json=body).status_code == 409
         assert len(calls) == 1
 
@@ -103,6 +103,10 @@ def test_preparation_downloads_only_missing_selected_resources_and_rechecks(tmp_
         return {'ready': prepare, 'detail': '已下载' if prepare else '缺失'}
     monkeypatch.setattr(env, 'probe', probe)
     env.start(SPEC, prepare=True)
+    assert wait_job(env)['ready']
+    monkeypatch.setattr(engine, 'readiness', lambda: {'ready': True})
+    monkeypatch.setattr(env, 'core_ready', lambda: pytest.fail('data preparation must not recheck dependencies'))
+    env.start(SPEC, prepare=True, scope='data')
     result = wait_job(env)
     assert result['ready'] and env.validated(SPEC)
     assert calls == [('data', 'arxivmath', False), ('data', 'arxivmath', True)]
@@ -127,7 +131,7 @@ def test_preparing_is_blocked_during_tests_and_restart_does_not_keep_ready(tmp_p
     env = Environment(tmp_path, threading.RLock(), lambda: True)
     with pytest.raises(ValueError, match='当前测试任务结束'):
         env.start(SPEC, prepare=True)
-    env.current = {'status': 'running', 'ready': True, 'items': [], 'id': 'old'}
+    env.current = {'status': 'running', 'ready': True, 'items': [], 'id': 'old', 'scope': 'data'}
     env.persist()
     restarted = Environment(tmp_path, threading.RLock(), lambda: False)
     assert restarted.snapshot()['status'] == 'interrupted'

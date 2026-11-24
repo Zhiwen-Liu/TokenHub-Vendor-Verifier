@@ -22,18 +22,26 @@ import zipfile
 from cryptography.fernet import Fernet
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from typing import Literal
 
 from . import connectivity, engine
+from .auth import Auth, COOKIE, SESSION_SECONDS
 from .environment import Environment
+from .progress import task_progress
 
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+class LoginInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class ObjectInput(BaseModel):
@@ -63,6 +71,14 @@ class ConnectionCheckInput(BaseModel):
     protocol: Literal['openai', 'anthropic'] = 'openai'
 
 
+class JudgeCheckInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    model: str = Field(default='', max_length=300)
+    url: str = Field(default='', max_length=2000)
+    api_key: str | None = Field(default=None, max_length=8192)
+    replay_id: str | None = None
+
+
 class EnvironmentInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     mode: Literal['perf', 'eval']
@@ -70,6 +86,12 @@ class EnvironmentInput(BaseModel):
     datasets: list[str] = []
     all: bool = False
     options: dict[str, str] = {}
+    scope: Literal['environment', 'data'] = 'environment'
+
+
+class CleanupInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    plan_id: str
 
 
 class Store:
@@ -234,6 +256,11 @@ class Runner:
 
 def create_app(data_dir=None, run_jobs=True):
     store = Store(data_dir or os.environ.get('THVV_WEB_DATA', engine.ROOT / '.thvv-web'))
+    try:
+        auth = Auth(store)
+    except Exception:
+        store.db.close()
+        raise
     runner = Runner(store)
     operation_gate = threading.RLock()
     environment = Environment(store.directory, operation_gate, lambda: bool(store.rows("SELECT id FROM tasks WHERE status IN ('queued','running') LIMIT 1")))
@@ -256,15 +283,25 @@ def create_app(data_dir=None, run_jobs=True):
     app = FastAPI(lifespan=lifespan)
     app.state.store, app.state.runner = store, runner
     app.state.environment = environment
+    app.state.auth = auth
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=['localhost', '127.0.0.1', '[::1]', 'testserver'])
 
     @app.middleware('http')
     async def local_mutation_guard(request: Request, call_next):
-        if request.method in ('POST', 'PATCH', 'DELETE') and request.headers.get('x-thvv-request') != '1':
-            return JSONResponse({'detail': '请通过本地测试页面操作'}, 403)
-        response = await call_next(request)
+        public = (request.method in ('GET', 'HEAD') and request.url.path in ('/login', '/login.js', '/login.css')) or (request.method == 'POST' and request.url.path == '/api/auth/login')
+        if not public and not auth.authenticated(request.cookies.get(COOKIE)):
+            response = JSONResponse({'detail': '请先登录'}, 401) if request.url.path.startswith('/api/') else RedirectResponse('/login', 303)
+        elif request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and (
+            request.headers.get('x-thvv-request') != '1' or
+            (request.headers.get('origin') is not None and request.headers['origin'] != str(request.base_url).rstrip('/'))
+        ):
+            response = JSONResponse({'detail': '请通过本地测试页面操作'}, 403)
+        else:
+            response = await call_next(request)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['Referrer-Policy'] = 'same-origin'
         return response
 
     @app.exception_handler(ValueError)
@@ -276,10 +313,32 @@ def create_app(data_dir=None, run_jobs=True):
         # Pydantic's default errors include the input, which may be an API key.
         return JSONResponse({'detail': '参数格式不正确，请检查表单字段'}, 422)
 
+    @app.get('/login', include_in_schema=False)
+    def login_page(request: Request):
+        if auth.authenticated(request.cookies.get(COOKIE)):
+            return RedirectResponse('/', 303)
+        return FileResponse(Path(__file__).parent / 'static' / 'login.html', headers={
+            'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
+
+    @app.post('/api/auth/login')
+    def login(data: LoginInput, request: Request):
+        token = auth.login(data.username, data.password, request.cookies.get(COOKIE))
+        response = JSONResponse({'username': 'admin'})
+        response.set_cookie(COOKIE, token, max_age=SESSION_SECONDS, httponly=True,
+                            secure=request.url.scheme == 'https', samesite='strict', path='/')
+        return response
+
+    @app.post('/api/auth/logout')
+    def logout(request: Request):
+        auth.logout(request.cookies.get(COOKIE))
+        response = JSONResponse({'logged_out': True})
+        response.delete_cookie(COOKIE, httponly=True, secure=request.url.scheme == 'https', samesite='strict', path='/')
+        return response
+
     @app.get('/api/meta')
     def meta():
         datasets, excluded = engine.registry()
-        return {'datasets': datasets, 'all_excluded': excluded, 'engine': engine.readiness(), 'framework_commit': '6e7a150', 'default_protocol': 'openai'}
+        return {'datasets': datasets, 'all_excluded': excluded, 'engine': engine.readiness(), 'framework_commit': '6e7a150', 'default_protocol': 'openai', 'judge_defaults': engine.judge_defaults()}
 
     @app.get('/api/objects')
     def objects():
@@ -333,8 +392,30 @@ def create_app(data_dir=None, run_jobs=True):
         obj, secrets = resolve_object(data.object_id, data.replay_id)
         return connectivity.check(obj['url'], model, data.protocol, secrets.get('api_key', ''))
 
+    def judge_check(options, key):
+        if not key or not key.strip():
+            raise ValueError('请填写裁判模型 API 密钥；重放时可留空沿用原任务密钥')
+        if any(ord(c) < 32 for c in key):
+            raise ValueError('裁判模型密钥不能包含控制字符')
+        config = engine.judge_config(options)
+        return connectivity.check(config['url'], config['model'], 'openai', key)
+
+    @app.post('/api/judge-connectivity')
+    def check_judge_connection(data: JudgeCheckInput):
+        key = data.api_key
+        if key is None and data.replay_id:
+            key = store.task(data.replay_id, private=True)['secrets'].get('judge_api_key', '')
+        return judge_check({'judge-model': data.model, 'judge-url': data.url}, key)
+
     def environment_spec(data):
         raw = data.model_dump()
+        scope = raw.pop('scope')
+        if scope == 'environment':
+            registry, excluded = engine.registry()
+            chosen = [d for d in registry if d not in excluded] if raw['all'] else raw['datasets']
+            if set(chosen) - registry.keys():
+                raise ValueError('请选择框架支持的数据集')
+            return {'mode': raw['mode'], 'model': raw['model'], 'datasets': chosen if raw['mode'] == 'eval' else [], 'options': {}}
         raw.update(object_id='', model=raw['model'].strip() or 'environment-check', protocol='openai')
         # Sandbox connectivity is separate; data loading never starts a sandbox or a model.
         if 'swe_bench_pro' in raw['datasets'] and not raw['options'].get('sandbox'):
@@ -343,11 +424,25 @@ def create_app(data_dir=None, run_jobs=True):
 
     @app.post('/api/environment/check', status_code=202)
     def check_environment(data: EnvironmentInput):
-        return environment.start(environment_spec(data))
+        return environment.start(environment_spec(data), scope=data.scope)
 
     @app.post('/api/environment/prepare', status_code=202)
     def prepare_environment(data: EnvironmentInput):
-        return environment.start(environment_spec(data), prepare=True)
+        return environment.start(environment_spec(data), prepare=True, scope=data.scope)
+
+    @app.post('/api/environment/readiness')
+    def environment_readiness(data: EnvironmentInput):
+        return environment.readiness(environment_spec(data.model_copy(update={'scope': 'data'})))
+
+    @app.post('/api/environment/cleanup-preview')
+    def cleanup_preview(data: EnvironmentInput):
+        selected = data.all or data.datasets if data.mode == 'eval' else data.options.get('bucket') or data.options.get('perf-command') == 'bench-all'
+        spec = environment_spec(data if selected else data.model_copy(update={'scope': 'environment'}))
+        return environment.preview_cleanup(data.scope, spec)
+
+    @app.post('/api/environment/cleanup', status_code=202)
+    def cleanup_environment(data: CleanupInput):
+        return environment.clean(data.plan_id)
 
     @app.get('/api/environment')
     def environment_status():
@@ -359,13 +454,17 @@ def create_app(data_dir=None, run_jobs=True):
             return enqueue_checked(data, source)
 
     def enqueue_checked(data, source=None):
+        active = store.rows("SELECT id FROM tasks WHERE status IN ('queued','running') LIMIT 1")
+        if active:
+            raise HTTPException(409, '已有测试任务正在进行（' + active[0]['id'][:8] + '），请等待结束后再开始测试')
         spec = engine.normalize_spec(data.model_dump())
         obj, secrets = resolve_object(spec['object_id'], source)
         if data.judge_api_key is not None:
             secrets['judge_api_key'] = data.judge_api_key
         if any(any(ord(c) < 32 for c in v) for v in secrets.values()):
             raise ValueError('密钥不能包含控制字符')
-        if spec['mode'] == 'eval' and set(spec['datasets']) & {'hle', 'simple_qa'} and not secrets.get('judge_api_key'):
+        needs_judge = engine.requires_judge(spec)
+        if needs_judge and not secrets.get('judge_api_key', '').strip():
             raise ValueError('所选数据集需要裁判模型 API 密钥')
         if not engine.readiness()['ready']:
             raise HTTPException(409, '评测依赖尚未安装，请运行 web/install-engine.sh 后重试')
@@ -373,10 +472,14 @@ def create_app(data_dir=None, run_jobs=True):
         if missing:
             raise HTTPException(409, '压测数据尚未下载：' + '、'.join(missing) + '。请按 WEB_README.md 下载对应 Git LFS 数据')
         if environment.busy() or not environment.validated(spec):
-            raise HTTPException(409, '请先完成当前配置的环境检查；配置变化或检查超过 5 分钟后需要重新检查')
+            raise HTTPException(409, '请先完成运行环境和当前数据的检查；依赖变更后重查环境，数据检查超过 5 分钟后重查数据')
         connection = connectivity.check(obj['url'], spec['model'], spec['protocol'], secrets.get('api_key', ''))
         if not connection['ready']:
             raise HTTPException(409, '开始前连通性检查失败：' + connection['message'])
+        if needs_judge:
+            judge = judge_check(spec['options'], secrets['judge_api_key'])
+            if not judge['ready']:
+                raise HTTPException(409, '裁判模型连通性检查失败，任务未启动：' + judge['message'])
         task_id = uuid.uuid4().hex
         payload = {'spec': spec, 'object': obj, 'replay_of': source, 'framework_commit': '6e7a150'}
         store.execute('INSERT INTO tasks(id,payload,secrets,status,created) VALUES(?,?,?,?,?)', (task_id, json.dumps(payload), store.encrypt(secrets), 'queued', now()))
@@ -394,7 +497,13 @@ def create_app(data_dir=None, run_jobs=True):
 
     @app.get('/api/tasks')
     def tasks():
-        return [store.task(row['id']) for row in store.rows('SELECT id FROM tasks ORDER BY created DESC')]
+        result = []
+        for row in store.rows('SELECT id FROM tasks ORDER BY created DESC'):
+            task = store.task(row['id'])
+            if task['status'] in ('queued', 'running'):
+                task['progress'] = task_progress(task, store.directory / 'tasks' / task['id'])
+            result.append(task)
+        return result
 
     def task_folder(task_id):
         store.task(task_id)
@@ -404,6 +513,7 @@ def create_app(data_dir=None, run_jobs=True):
     def task_detail(task_id: str):
         task = store.task(task_id)
         folder = task_folder(task_id)
+        task['progress'] = task_progress(task, folder)
         root = folder / 'artifacts'
         task['artifacts'] = [{'path': str(p.relative_to(root)), 'size': p.stat().st_size} for p in sorted(root.rglob('*')) if p.is_file()]
         summaries = []

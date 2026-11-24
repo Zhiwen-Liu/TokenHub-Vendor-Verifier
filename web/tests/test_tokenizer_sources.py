@@ -89,5 +89,5 @@ def test_missing_cache_does_not_trigger_download_and_original_hf_error_is_readab
     assert calls == [True, True]
     raw = "We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files."
     result = failure_details(raw, kind='tokenizer')
-    assert result['detail'] == 'Tokenizer本地缓存不完整，点击“准备缺失项”补齐。'
+    assert result['detail'] == 'Tokenizer本地缓存不完整，在数据分组中点击“准备缺失项”补齐。'
     assert result['error_details'] == raw

@@ -123,12 +123,27 @@
     }
   }
   const statusNames={queued:'等待运行',running:'运行中',succeeded:'执行完成',failed:'执行失败',interrupted:'已中断'};
-  let tasks=[],currentTask=null,loadingTask=false;
-  let environmentJob=null,environmentBusy=false,starting=false,environmentSelection='',connectionSelection='';
-  let environmentRowsSignature='';
-  let environmentAction='',feedbackTimer;
+  let tasks=[],currentTask=null,loadingTask=false,tasksRequest=null,tasksKnown=false;
+  let environmentJob=null,environmentBusy=false,starting=false,environmentSelection={},connectionSelection='',judgeSelection='';
+  let environmentRowsSignature={};
+  let environmentAction='',environmentScope='environment',cleanupPlan=null,feedbackTimer;
   const pendingButtons=new Set();
   const displayDate=value=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';
+  const activeTask=()=>tasks.find(t=>['queued','running'].includes(t.status));
+  function duration(seconds){const n=Math.max(0,Math.floor(seconds||0));return (n>=3600?Math.floor(n/3600)+' 小时 ':'')+(n>=60?Math.floor(n%3600/60)+' 分 ':'')+(n%60)+' 秒';}
+  function taskProgressMarkup(task,compact=false){
+    const p=task.progress||{stage:statusNames[task.status],percent:task.status==='succeeded'?100:null,active:['queued','running'].includes(task.status)};
+    const count=p.total?`${p.completed} / ${p.total} ${p.unit}`:'';
+    const percent=p.percent===null||p.percent===undefined?null:p.percent;
+    const label=[p.context,p.stage].filter(Boolean).join(' · ');
+    const detail=percent===null?(p.active?'等待框架更新进度':'未取得完成数量'):percent+'%';
+    return '<div class="th-task-progress'+(compact?' th-progress-compact':'')+'" data-active="'+!!p.active+'"><div class="th-progress-heading"><strong>'+esc(label)+'</strong><span>'+esc(count?count+' · '+detail:detail)+'</span></div><progress max="100"'+(percent!==null?' value="'+percent+'"':!p.active?' value="0"':'')+' aria-label="'+esc(label)+'" aria-valuetext="'+esc(count||detail)+'"></progress>'+(compact?'':'<p class="th-note">已用 '+esc(duration(p.elapsed_seconds))+(p.active?' · 显示当前阶段进度，阶段切换时重新计数；没有完成数量时仅显示进行中。':'')+'</p>')+'</div>';
+  }
+  function renderTaskAvailability(){
+    const task=activeTask();q('#web-active-task').hidden=!task;
+    if(task){q('#web-active-task-name').textContent=task.object.name+' · '+task.spec.model+' · '+task.id.slice(0,8);q('#web-active-task-progress').innerHTML=taskProgressMarkup(task);}
+    environmentButtons();
+  }
   function feedback(message,kind='success'){
     const box=q('#web-feedback');clearTimeout(feedbackTimer);box.dataset.kind=kind;box.textContent=message;box.hidden=false;
     feedbackTimer=setTimeout(()=>{box.hidden=true;},kind==='error'?6500:4500);
@@ -145,9 +160,13 @@
     pendingButtons.add(key);buttonBusy(button,true,label);button.disabled=true;
     try{return await action();}finally{pendingButtons.delete(key);buttonBusy(button,false);button.disabled=false;}
   }
-  function showError(error){const message=String(error?.message||error);q('#web-error').textContent=message;q('#web-error').hidden=false;feedback(message,'error');}
+  let leavingSession=false;
+  function leaveSession(){leavingSession=true;root.hidden=true;window.location.replace('/login');}
+  function showError(error){if(leavingSession)return;const message=String(error?.message||error);q('#web-error').textContent=message;q('#web-error').hidden=false;feedback(message,'error');}
   async function api(path,method='GET',body){
+    if(leavingSession)throw new Error('请重新登录');
     const response=await fetch('/api'+path,{method,headers:{'Content-Type':'application/json','X-THVV-Request':'1'},body:body===undefined?undefined:JSON.stringify(body)});
+    if(response.status===401){leaveSession();throw new Error('请重新登录');}
     const data=await response.json();
     if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));
     return data;
@@ -175,6 +194,7 @@
     q('#th-object-guidance').textContent=state.connections.length?'请选择测试对象。':'暂无测试对象，请先新增；也可先填写测试参数。';
     q('#th-current-object-detail').hidden=!obj;
     q('#th-current-object-detail').textContent=obj?obj.url+(state.replay?' · 重放将沿用原任务端点及密钥':''):'';
+    q('#web-judge-key').placeholder=state.replay?'留空沿用原任务裁判密钥':'填写裁判模型密钥';
   }
   function render(){
     const perf=state.mode==='perf';
@@ -204,7 +224,14 @@
     await api('/objects/'+pendingDeleteId,'DELETE');
     if(editingId===pendingDeleteId)editConnection('');pendingDeleteId='';q('#th-delete-object-confirm').hidden=true;await loadObjects();save();feedback('测试对象已删除');
   }
-  async function loadTasks(){tasks=await api('/tasks');q('#web-history-rows').innerHTML=tasks.length?tasks.map(t=>'<tr><td>'+esc(t.id.slice(0,8))+'</td><td>'+esc(t.object.name)+'<small class="th-note" style="display:block">'+esc(t.spec.model)+'</small></td><td>'+(t.spec.mode==='perf'?'性能压测':'效果评测')+'</td><td>'+esc(displayDate(t.created))+'</td><td>'+esc(statusNames[t.status]||t.status)+'</td><td><div class="th-task-actions"><button type="button" class="th-task-action" data-view-task="'+t.id+'">查看</button><button type="button" class="th-task-action" data-replay-task="'+t.id+'">重放</button><button type="button" class="th-task-action th-task-delete" data-delete-task="'+t.id+'"'+(['queued','running'].includes(t.status)?' disabled':'')+'>删除</button></div></td></tr>').join(''):'<tr><td colspan="6">暂无测试任务。</td></tr>';}
+  async function loadTasks(){
+    if(tasksRequest)return tasksRequest;
+    tasksRequest=(async()=>{
+      tasks=await api('/tasks');q('#web-history-rows').innerHTML=tasks.length?tasks.map(t=>'<tr><td>'+esc(t.id.slice(0,8))+'</td><td>'+esc(t.object.name)+'<small class="th-note" style="display:block">'+esc(t.spec.model)+'</small></td><td>'+(t.spec.mode==='perf'?'性能压测':'效果评测')+'</td><td>'+esc(displayDate(t.created))+'</td><td>'+esc(statusNames[t.status]||t.status)+(t.progress?taskProgressMarkup(t,true):'')+'</td><td><div class="th-task-actions"><button type="button" class="th-task-action" data-view-task="'+t.id+'">查看</button><button type="button" class="th-task-action" data-replay-task="'+t.id+'">重放</button><button type="button" class="th-task-action th-task-delete" data-delete-task="'+t.id+'"'+(['queued','running'].includes(t.status)?' disabled':'')+'>删除</button></div></td></tr>').join(''):'<tr><td colspan="6">暂无测试任务。</td></tr>';
+      tasksKnown=true;renderTaskAvailability();
+    })();
+    try{return await tasksRequest;}catch(error){tasksKnown=false;environmentButtons();throw error;}finally{tasksRequest=null;}
+  }
   function taskBody(){
     const options={};for(const id of fields)if(!['th-model','th-protocol'].includes(id)&&q('#'+id).value.trim())options[id.slice(3)]=q('#'+id).value.trim();
     const body={object_id:state.replay?.object.id||state.connectionId,model:q('#th-model').value.trim(),mode:state.mode,protocol:q('#th-protocol').value||'openai',datasets:state.datasets,all:state.all,options};
@@ -212,40 +239,64 @@
     return body;
   }
   async function startTask(){
+    if(starting)return;
     const b=q('#web-start');starting=true;b.disabled=true;q('#web-error').hidden=true;
     const body=taskBody(),replayId=state.replay?.id;
     try{
+      await loadTasks();
+      if(activeTask())throw new Error('已有测试任务正在进行，请等待结束后再开始测试');
       if(!body.object_id||!body.model)throw new Error('请选择测试对象并填写模型名称');
       buttonBusy(b,true,'正在检查环境…');
-      const ready=await runEnvironment(false);
-      if(!ready.ready)throw new Error('运行环境尚未就绪，请查看检查结果，并准备缺失项');
+      const ready=await api('/environment/readiness','POST',environmentBody());
+      for(const scope of ['environment','data']){
+        if(ready[scope])continue;
+        buttonBusy(b,true,scope==='environment'?'正在检查环境…':'正在检查数据…');
+        const result=await runEnvironment(false,scope);
+        if(!result.ready)throw new Error(scope==='environment'?'运行环境尚未就绪，可在运行环境中点击“准备缺失项”':'数据尚未就绪，可在数据分组中点击“准备缺失项”');
+      }
       if(JSON.stringify(body)!==JSON.stringify(taskBody())||replayId!==state.replay?.id)throw new Error('配置已变更，请按新配置重新开始');
-      buttonBusy(b,true,'正在检查连通性…');
+      buttonBusy(b,true,state.mode==='eval'&&selected().some(d=>d.judge)?'正在检查模型与 Judge 连通性…':'正在检查连通性…');
       const task=await api(replayId?'/tasks/'+replayId+'/replay':'/tasks','POST',body);
-      state.replay=null;q('#web-judge-key').value='';await viewTask(task.id);await loadTasks();save();feedback('测试任务已创建，可查看运行状态');
-    }finally{starting=false;buttonBusy(b,false);environmentButtons();}
+      state.replay=null;q('#web-judge-key').value='';judgeSelection='';q('#web-judge-connection-result').textContent='尚未检查';await viewTask(task.id);await loadTasks();save();feedback('测试任务已创建，可查看运行状态');
+    }finally{starting=false;buttonBusy(b,false);environmentButtons();loadTasks().catch(showError);}
   }
   function environmentBody(){const body=taskBody();return {mode:body.mode,model:body.model,datasets:body.datasets,all:body.all,options:body.options};}
   function connectionBody(){return {object_id:state.connectionId,replay_id:state.replay?.id||null,model:q('#th-model').value.trim(),protocol:q('#th-protocol').value||'openai'};}
+  function judgeBody(){
+    const body={model:q('#th-judge-model').value.trim(),url:q('#th-judge-url').value.trim(),replay_id:state.replay?.id||null};
+    if(q('#web-judge-key').value)body.api_key=q('#web-judge-key').value;
+    return body;
+  }
   function environmentButtons(){
     const busy=environmentBusy||environmentJob?.status==='running';
     const action=environmentBusy?environmentAction:environmentJob?.action;
-    buttonBusy(q('#web-check-environment'),busy&&action==='check','检查中…');
-    buttonBusy(q('#web-prepare-environment'),busy&&action==='prepare','准备中…');
-    q('#web-check-environment').disabled=busy||starting;
-    q('#web-prepare-environment').disabled=busy||starting;
-    q('#web-start').disabled=busy||starting;
+    const activeScope=environmentBusy?environmentScope:environmentJob?.scope;
+    for(const scope of ['environment','data']){
+      for(const name of ['check','prepare','clean']){
+        const b=q('#web-'+name+'-'+scope);
+        const active=activeScope===scope&&action===name;
+        buttonBusy(b,busy&&active,{check:'检查中…',prepare:'准备中…',clean:'清理中…'}[name]);
+        b.disabled=busy||starting;
+      }
+    }
+    q('#web-start').disabled=busy||starting||!tasksKnown||!!activeTask();
+    if(!starting)buttonText(q('#web-start'),!tasksKnown?'正在确认任务状态…':activeTask()?'等待当前任务结束':'开始测试');
+    q('#web-confirm-cleanup').disabled=busy||starting||!cleanupPlan?.items.length;
   }
   function renderEnvironment(){
-    environmentButtons();if(!environmentJob)return;
+    environmentButtons();
     const names={checking:'检查中',preparing:'准备中',ready:'已就绪',online:'仍需联网',missing:'未就绪',blocked:'等待依赖',manual:'需手动准备'};
-    const changed=environmentSelection&&environmentSelection!==JSON.stringify(environmentBody());
-    const seconds=Math.max(0,(environmentJob.finished||Date.now()/1000)-(environmentJob.started||Date.now()/1000));
-    q('#web-environment-status').textContent=(changed?'配置已变更，以下为上次选择的检查结果。':!environmentSelection?'上次环境操作：':'')+environmentJob.message+' · '+(environmentJob.finished?'用时 '+seconds.toFixed(1)+' 秒':'已用 '+Math.floor(seconds)+' 秒');
-    const signature=JSON.stringify(environmentJob.items);
-    if(signature!==environmentRowsSignature){
+    for(const scope of ['environment','data']){
+      const job=environmentJob?.groups?.[scope];
+      if(!job){q('#web-'+scope+'-status').textContent='尚未检查';q('#web-'+scope+'-items').innerHTML='';q('#web-'+scope+'-log-panel').hidden=true;delete environmentRowsSignature[scope];continue;}
+      const changed=scope==='data'&&environmentSelection[scope]&&environmentSelection[scope]!==JSON.stringify(environmentBody());
+      const seconds=Math.max(0,(job.finished||Date.now()/1000)-(job.started||Date.now()/1000));
+      q('#web-'+scope+'-status').textContent=(changed?'配置已变更，以下为上次选择的检查结果。':'')+job.message+' · '+(job.finished?'用时 '+seconds.toFixed(1)+' 秒':'已用 '+Math.floor(seconds)+' 秒');
+      if(scope==='environment'&&job.ready)q('#web-status').hidden=true;
+      const signature=JSON.stringify(job.items);
+      if(signature!==environmentRowsSignature[scope]){
       const expanded=new Set(qa('[data-env-detail]').filter(el=>el.open).map(el=>el.dataset.envDetail));
-      const rows=environmentJob.items.map(item=>{
+      const rows=job.items.map(item=>{
         const versions=(item.versions||[]).map(v=>'<tr><td>'+esc(v.name)+'</td><td>'+esc(v.required)+(v.install_constraint&&v.install_constraint!==v.required?'<small class="th-default" style="display:block">安装约束：'+esc(v.install_constraint)+'</small>':'')+'</td><td>'+esc(v.installed||'未安装')+(v.source_revision?'<small class="th-default" style="display:block">来源：'+esc(v.source_revision)+'</small>':'')+'</td><td>'+esc(v.matches?'符合':'不符合')+'</td></tr>').join('');
         let disclosure='';
         if(versions||item.error_details){
@@ -254,29 +305,50 @@
           if(item.error_details)disclosure+='<pre>'+esc(item.error_details)+'</pre>';
           disclosure+='</details>';
         }
-        return '<tr><td>'+esc(item.label)+'</td><td><span class="th-env-state" data-env-state="'+esc(item.state)+'">'+esc(names[item.state]||item.state)+'</span></td><td><p>'+esc(item.detail)+'</p>'+disclosure+'</td></tr>';
+        const disposition={reused:job.action==='check'?'可直接复用':'复用已有',prepared:'本次准备'}[item.disposition];
+        return '<tr><td>'+esc(item.label)+'</td><td><span class="th-env-state" data-env-state="'+esc(item.state)+'">'+esc(names[item.state]||item.state)+'</span>'+(disposition?'<small class="th-default" style="display:block">'+disposition+'</small>':'')+'</td><td><p>'+esc(item.detail)+'</p>'+disclosure+'</td></tr>';
       }).join('');
-      q('#web-environment-items').innerHTML=rows?'<table class="th-object-table th-env-table th-space"><thead><tr><th>检查项</th><th>状态</th><th>说明</th></tr></thead><tbody>'+rows+'</tbody></table>':'';
-      environmentRowsSignature=signature;
-    }
-    q('#web-environment-log-panel').hidden=!environmentJob.log;q('#web-environment-log').textContent=environmentJob.log||'';
-    if(environmentJob.ready){q('#web-status').hidden=true;}
-  }
-  async function runEnvironment(prepare){
-    environmentBusy=true;environmentAction=prepare?'prepare':'check';environmentSelection=JSON.stringify(environmentBody());environmentButtons();
-    q('#web-environment-status').textContent=prepare?'正在提交环境准备，请稍候…':'正在提交环境检查，请稍候…';
-    try{
-      environmentJob=await api('/environment/'+(prepare?'prepare':'check'),'POST',JSON.parse(environmentSelection));
-      const id=environmentJob.id;renderEnvironment();
-      while(environmentJob.status==='running'){
-        await new Promise(resolve=>setTimeout(resolve,1200));
-        const latest=await api('/environment');
-        if(!latest||latest.id!==id)throw new Error('环境检查已被其他页面更新，请重新检查');
-        environmentJob=latest;renderEnvironment();
+      q('#web-'+scope+'-items').innerHTML=rows?'<table class="th-object-table th-env-table th-space"><thead><tr><th>检查项</th><th>状态</th><th>说明</th></tr></thead><tbody>'+rows+'</tbody></table>':'';
+        environmentRowsSignature[scope]=signature;
       }
-      if(environmentJob.status!=='completed')throw new Error(environmentJob.message);
-      if(!starting)feedback(environmentJob.ready?(prepare?'环境准备完成，可以开始测试':'环境检查通过'):(prepare?'准备已结束，仍有未就绪项，请查看说明':'检查已完成，有未就绪项，请查看说明'),environmentJob.ready?'success':'warning');
-      return environmentJob;
+      q('#web-'+scope+'-log-panel').hidden=!job.log;q('#web-'+scope+'-log').textContent=job.log||'';
+    }
+  }
+  async function followEnvironment(job){
+    environmentJob=job;const id=job.id;renderEnvironment();
+    while(environmentJob.status==='running'){
+      await new Promise(resolve=>setTimeout(resolve,800));
+      const latest=await api('/environment');
+      if(!latest||latest.id!==id)throw new Error('操作已被其他页面更新，请重新检查');
+      environmentJob=latest;renderEnvironment();
+    }
+    if(environmentJob.status!=='completed')throw new Error(environmentJob.message);
+    return environmentJob;
+  }
+  async function runEnvironment(prepare,scope='environment'){
+    environmentBusy=true;environmentScope=scope;environmentAction=prepare?'prepare':'check';environmentSelection[scope]=JSON.stringify(environmentBody());environmentButtons();
+    q('#web-'+scope+'-status').textContent='正在提交操作，请稍候…';
+    try{
+      const job=await api('/environment/'+environmentAction,'POST',{...environmentBody(),scope});
+      const result=await followEnvironment(job);
+      if(!starting)feedback(result.message,result.ready?'success':'warning');
+      return result;
+    }finally{environmentBusy=false;environmentButtons();}
+  }
+  async function previewCleanup(scope){
+    cleanupPlan=await api('/environment/cleanup-preview','POST',{...environmentBody(),scope});
+    q('#web-cleanup-heading').textContent=(scope==='environment'?'清理依赖环境':'清理数据缓存')+' · 约 '+(cleanupPlan.bytes/1024/1024).toFixed(1)+' MB';
+    q('#web-cleanup-items').innerHTML=cleanupPlan.items.length?cleanupPlan.items.map(i=>'<p>'+esc(i.label)+'<small class="th-default" style="display:block">'+esc(i.path)+'</small></p>').join(''):'<p>本次范围内没有可清理的内容。</p>';
+    q('#web-cleanup-notes').textContent=cleanupPlan.notes.join(' ');
+    q('#web-cleanup-confirm').hidden=false;environmentButtons();q('#web-cleanup-confirm').scrollIntoView({block:'nearest',behavior:'smooth'});
+  }
+  async function cleanEnvironment(){
+    if(!cleanupPlan)return;
+    environmentBusy=true;environmentScope=cleanupPlan.scope;environmentAction='clean';environmentButtons();
+    try{
+      const job=await api('/environment/cleanup','POST',{plan_id:cleanupPlan.id});
+      cleanupPlan=null;q('#web-cleanup-confirm').hidden=true;
+      await followEnvironment(job);feedback('清理完成，测试对象和历史任务已保留');
     }finally{environmentBusy=false;environmentButtons();}
   }
   async function checkConnection(){
@@ -289,8 +361,20 @@
       feedback(changed?'配置已变更，请重新检查连通性':result.ready?'连通性检查通过':'连通性检查未通过，请查看原因',!changed&&result.ready?'success':'warning');
     }catch(error){q('#web-connection-result').textContent='未完成 · '+error.message;throw error;}finally{b.disabled=false;}
   }
+  async function checkJudgeConnection(){
+    const body=judgeBody();judgeSelection=JSON.stringify(body);
+    q('#web-judge-connection-result').textContent='正在向裁判模型发送最小请求…';
+    try{
+      const result=await api('/judge-connectivity','POST',body);
+      const changed=judgeSelection!==JSON.stringify(judgeBody());
+      q('#web-judge-connection-result').textContent=changed?'Judge 配置已变更，请重新检查':(result.ready?'已通过 · ':'未通过 · ')+result.message+' · '+result.elapsed_ms+' ms';
+      feedback(changed?'Judge 配置已变更，请重新检查':result.ready?'Judge 连通性检查通过':'Judge 连通性检查未通过，请查看原因',!changed&&result.ready?'success':'warning');
+    }catch(error){q('#web-judge-connection-result').textContent='未完成 · '+error.message;throw error;}
+  }
   function invalidateChecks(){
+    cleanupPlan=null;q('#web-cleanup-confirm').hidden=true;
     if(connectionSelection&&connectionSelection!==JSON.stringify(connectionBody()))q('#web-connection-result').textContent='对象、模型或协议已变更，请重新检查';
+    if(judgeSelection&&judgeSelection!==JSON.stringify(judgeBody()))q('#web-judge-connection-result').textContent='Judge 模型、地址或密钥已变更，请重新检查';
     if(environmentJob)renderEnvironment();
   }
   async function replayTask(id){
@@ -305,6 +389,7 @@
     q('#web-task-title').textContent=t.spec.model+' · '+(t.spec.mode==='eval'?'效果评测':'性能压测');
     q('#web-task-meta').textContent=t.object.name+' · '+t.id.slice(0,8)+' · 创建于 '+displayDate(t.created)+(t.finished?' · 结束于 '+displayDate(t.finished):'');
     q('#web-task-status').textContent=statusNames[t.status]||t.status;q('#web-task-error').hidden=!t.error;q('#web-task-error').textContent=t.error||'';
+    q('#web-task-progress').innerHTML=taskProgressMarkup(t);
     for(const tab of ['results','config','reports'])q('#web-task-'+tab).hidden=state.taskTab!==tab;
     qa('[data-task-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.taskTab===state.taskTab)));
     let results='';
@@ -327,6 +412,7 @@
   root.addEventListener('click',async e=>{
     const b=e.target.closest('button');if(!b||b.disabled)return;q('#web-error').hidden=true;
     try{
+      if(b.id==='web-logout'){await withButton(b,'正在退出…',async()=>{await api('/auth/logout','POST');leaveSession();});return;}
       if(b.id==='th-save-connection'){await withButton(b,'保存中…',saveConnection);return;}
       if(b.id==='th-new-object'){returnToTest=true;editConnection('');state.stage=1;render();return;}
       if(b.dataset.editObject){returnToTest=false;editConnection(b.dataset.editObject);q('#th-connection-name').focus();return;}
@@ -335,9 +421,16 @@
       if(b.id==='th-cancel-delete-object'){pendingDeleteId='';q('#th-delete-object-confirm').hidden=true;return;}
       if(b.id==='th-confirm-delete-object'){await withButton(b,'删除中…',deleteConnection);return;}
       if(b.id==='web-start'){await startTask();return;}
+      if(b.id==='web-view-active-task'){const task=activeTask();if(task)await viewTask(task.id);return;}
       if(b.id==='web-check-connection'){await withButton(b,'检查中…',checkConnection);return;}
-      if(b.id==='web-check-environment'){await runEnvironment(false);return;}
-      if(b.id==='web-prepare-environment'){await runEnvironment(true);return;}
+      if(b.id==='web-check-judge-connection'){await withButton(b,'检查中…',checkJudgeConnection);return;}
+      for(const scope of ['environment','data']){
+        if(b.id==='web-check-'+scope){await runEnvironment(false,scope);return;}
+        if(b.id==='web-prepare-'+scope){await runEnvironment(true,scope);return;}
+        if(b.id==='web-clean-'+scope){await withButton(b,'正在计算清理范围…',()=>previewCleanup(scope));return;}
+      }
+      if(b.id==='web-confirm-cleanup'){await cleanEnvironment();return;}
+      if(b.id==='web-cancel-cleanup'){cleanupPlan=null;q('#web-cleanup-confirm').hidden=true;return;}
       if(b.dataset.viewTask){await withButton(b,'加载中…',()=>viewTask(b.dataset.viewTask));return;}
       if(b.dataset.replayTask){await withButton(b,'载入中…',()=>replayTask(b.dataset.replayTask));return;}
       if(b.dataset.deleteTask){if(confirm('确定删除此任务及其报告？'))await withButton(b,'删除中…',async()=>{await api('/tasks/'+b.dataset.deleteTask,'DELETE');await loadTasks();feedback('任务及报告已删除');});return;}
@@ -352,18 +445,24 @@
     if(el.dataset.dataset){state.datasets=el.checked?[...new Set([...state.datasets,el.dataset.dataset])]:state.datasets.filter(id=>id!==el.dataset.dataset);}
     update();save();invalidateChecks();
   });
-  root.addEventListener('input',e=>{if(fields.includes(e.target.id)){update();invalidateChecks();}});
+  root.addEventListener('input',e=>{if(fields.includes(e.target.id)||e.target.id==='web-judge-key'){update();invalidateChecks();}});
   async function init(){
     try{
       const saved=JSON.parse(localStorage.getItem('thvv-test-form')||'null');
       if(saved){state.mode=['perf','eval'].includes(saved.mode)?saved.mode:'perf';state.datasets=Array.isArray(saved.datasets)?saved.datasets:[];state.all=!!saved.all;state.connectionId=saved.connectionId||'';for(const id of fields)if(typeof saved.fields?.[id]==='string')q('#'+id).value=saved.fields[id];}
       render();
       const meta=await api('/meta');
-      if(!meta.engine.ready){q('#web-status').textContent='页面已就绪。选择测试类型和数据后，可在下方检查环境并准备缺失项。';q('#web-status').hidden=false;}
+      for(const [id,value] of meta.judge_defaults?[['th-judge-model',meta.judge_defaults.model],['th-judge-url',meta.judge_defaults.url]]:[]){
+        q('#'+id).placeholder='框架默认：'+value;
+        q('#'+id).parentElement.querySelector('.th-default').textContent='未配置时默认：'+value+'。';
+      }
+      if(!meta.engine.ready){q('#web-status').textContent='页面已就绪。可在下方分别检查、准备运行环境和数据。';q('#web-status').hidden=false;}
       await Promise.all([loadObjects(),loadTasks()]);
       environmentJob=await api('/environment');renderEnvironment();
     }catch(error){showError(error);}
   }
-  setInterval(()=>{if(document.hidden)return;if(state.stage===4)refreshTask().catch(showError);else if(state.stage===3)loadTasks().catch(showError);if(!environmentBusy&&environmentJob?.status==='running')api('/environment').then(job=>{environmentJob=job;renderEnvironment();}).catch(showError);},2000);
+  setInterval(()=>{if(document.hidden||leavingSession)return;loadTasks().catch(showError);if(state.stage===4)refreshTask().catch(showError);if(!environmentBusy&&environmentJob?.status==='running')api('/environment').then(job=>{environmentJob=job;renderEnvironment();}).catch(showError);},2000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!leavingSession)loadTasks().catch(showError);});
+  window.addEventListener('pageshow',event=>{if(event.persisted)window.location.reload();});
   init();
 })();
