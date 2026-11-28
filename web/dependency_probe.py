@@ -29,13 +29,28 @@ def package_version(req, native=()):
             'install_constraint': str(req.specifier), 'matches': aligned}
 
 
-def check_core():
+def check_core(evalscope_min=None):
     native = {}
     for path in ('thvv/eval/requirements.txt', 'thvv/perf/requirements.txt'):
         for req in requirements(ROOT / path):
             native.setdefault(req.name.lower(), []).append(req)
-    versions = [package_version(req, native.get(req.name.lower(), ())) for req in requirements(ROOT / 'web/engine-requirements.txt')]
-    result = {'ready': all(v['matches'] for v in versions), 'versions': versions}
+    versions = []
+    for req in requirements(ROOT / 'web/engine-requirements.txt'):
+        if evalscope_min and req.name.lower() == 'evalscope':
+            # Dataset-driven requirement: displayed and matched against the selection,
+            # but gated by the dedicated version-compatibility item, not here.
+            try:
+                installed = metadata.version(req.name)
+            except metadata.PackageNotFoundError:
+                installed = None
+            from packaging.version import Version
+            matches = bool(installed) and Version(installed) >= Version(evalscope_min)
+            versions.append({'name': req.name, 'installed': installed,
+                             'required': f'>= {evalscope_min}（所选数据集要求）',
+                             'install_constraint': str(req.specifier), 'matches': matches, 'informational': True})
+            continue
+        versions.append(package_version(req, native.get(req.name.lower(), ())))
+    result = {'ready': all(v['matches'] for v in versions if not v.get('informational')), 'versions': versions}
     if result['ready']:
         try:
             for name in ('evalscope', 'openai', 'modelscope', 'transformers', 'pyarrow', 'openpyxl'):
@@ -78,7 +93,11 @@ def check_optional(requirement, module):
 if __name__ == '__main__':
     mode, output, *args = sys.argv[1:]
     try:
-        result = check_core() if mode == 'core' else check_optional(*args)
+        if mode == 'core':
+            evalscope_min = args[0] if args else None
+            result = check_core(evalscope_min=evalscope_min)
+        else:
+            result = check_optional(*args)
     except Exception as exc:
         result = {'ready': False, 'versions': [], 'error_details': f'{type(exc).__name__}: {exc}'}
     Path(output).write_text(json.dumps(result, ensure_ascii=False))

@@ -662,6 +662,15 @@ def build_eval_command(args, dataset_key, run_dir=None, *, use_cached_tau2=True)
 
     output_dir = args.output_dir or get_result_dir(args.provider, args.model_name, dataset_key, run_dir)
 
+    # use_cache 支持传 run 根目录：当 <cache>/<数据集label>/predictions 存在时，
+    # 就地续跑该数据集目录（work-dir 与 use-cache 同目录，evalscope 原地恢复）。
+    use_cache_arg = args.use_cache
+    if use_cache_arg:
+        per_ds_cache = os.path.join(use_cache_arg, ds_config['label'])
+        if os.path.isdir(os.path.join(per_ds_cache, 'predictions')):
+            output_dir = per_ds_cache
+            use_cache_arg = per_ds_cache
+
     cmd = _evalscope_launcher() + [
         'eval',
         '--model', args.model_name,
@@ -677,7 +686,7 @@ def build_eval_command(args, dataset_key, run_dir=None, *, use_cached_tau2=True)
         cmd.append('--ignore-errors')
 
     # generation_config
-    gen_config = {"max_tokens": max_tokens}
+    gen_config = {"max_tokens": max_tokens, "timeout": 1800}
     if temperature is not None:
         gen_config["temperature"] = float(temperature)
     if args.top_p is not None:
@@ -824,8 +833,8 @@ def build_eval_command(args, dataset_key, run_dir=None, *, use_cached_tau2=True)
     # 通用可选
     if args.limit is not None:
         cmd.extend(['--limit', str(args.limit)])
-    if args.use_cache:
-        cmd.extend(['--use-cache', args.use_cache])
+    if use_cache_arg:
+        cmd.extend(['--use-cache', use_cache_arg])
     if args.debug:
         cmd.append('--debug')
 
@@ -1612,6 +1621,9 @@ def _cleanup_redundant_artifacts(all_summaries):
     freed = 0
     for s in all_summaries:
         if not s.get('success'):
+            continue
+        if s.get('skipped_count'):
+            # 有容错跳过的数据集保留 predictions，供 --use-cache 只补跑失败样本
             continue
         output_dir = s.get('output_dir', '')
         if not output_dir or not os.path.isdir(output_dir):

@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import sys
 
@@ -43,12 +44,70 @@ def load_native():
     return native
 
 
+def _cache_dirs(adapter):
+    """Yield the evalscope Arrow cache dirs for every subset of this adapter."""
+    from evalscope.utils.io_utils import gen_hash, safe_filename
+    from evalscope.constants import DEFAULT_EVALSCOPE_CACHE_DIR
+
+    if adapter.dataset_dir:
+        base = os.path.join(adapter.dataset_dir, 'datasets')
+    else:
+        base = os.path.join(DEFAULT_EVALSCOPE_CACHE_DIR, 'datasets')
+    for subset in adapter.subset_list:
+        split = subset if adapter.split_as_subset else adapter.eval_split
+        subset_name = adapter.default_subset if adapter.split_as_subset else subset
+        dataset_hash = gen_hash(f'{adapter.dataset_id}{split}{subset_name}{None}{dict()}')
+        yield os.path.join(base, f'{safe_filename(adapter.dataset_id)}-{dataset_hash}')
+
+
+def _count_arrow_cache(adapter):
+    """Count total samples from on-disk Arrow cache (memory-mapped, ~0 extra RAM).
+
+    Returns the total row count across all subsets, or *None* when any
+    subset's cache directory is missing (meaning data hasn't been downloaded).
+    """
+    import datasets as hf_datasets
+
+    total = 0
+    for cache_dir in _cache_dirs(adapter):
+        if not os.path.isdir(cache_dir):
+            return None
+        ds = hf_datasets.load_from_disk(cache_dir)
+        total += len(ds)
+        del ds
+    return total
+
+
+def _clear_invalid_caches(adapter, hint_paths=()):
+    """Remove empty/incomplete Arrow cache dirs so a prepare can re-download.
+
+    evalscope only checks ``os.path.exists`` before ``load_from_disk``; a leftover
+    empty directory therefore blocks re-download forever. We only delete dirs that
+    lack ``dataset_info.json`` (never a valid cache), and only for this adapter's
+    own subsets plus any path quoted in the failure, so concurrent prepares for
+    other datasets are never touched.
+    """
+    import shutil
+
+    removed = []
+    for path in dict.fromkeys([*_cache_dirs(adapter), *hint_paths]):
+        if os.path.isdir(path) and not os.path.exists(os.path.join(path, 'dataset_info.json')):
+            shutil.rmtree(path, ignore_errors=True)
+            removed.append(path)
+    return removed
+
+
 def load_data(name, options, prepare=False):
     # Build the actual native command to preserve its subset, hub and local mirror rules.
     native = load_native()
     sys.argv = ['run_eval.py', '--model_name', 'environment-check', '--base_url', 'http://127.0.0.1:1/v1', '--api_key', 'unused', '--datasets', name]
     if options.get('limit'):
         sys.argv += ['--limit', options['limit']]
+    # Mirror engine.py: msr_vtt must use huggingface hub + local video dir
+    if name == 'msr_vtt':
+        video_dir = ROOT / 'thvv/eval/datasets/msr_vtt/test_1k'
+        if video_dir.is_dir():
+            sys.argv += ['--dataset_hub', 'huggingface', '--msr_vtt_video_dir', str(video_dir)]
     args = native.parse_args()
     # Explicit preparation may repair an incomplete snapshot; checks remain offline.
     command, _ = native.build_eval_command(args, name, use_cached_tau2=not prepare)
@@ -58,18 +117,62 @@ def load_data(name, options, prepare=False):
     parser = argparse.ArgumentParser()
     add_argument(parser)
     config = TaskConfig.from_args(parser.parse_args(command[command.index('eval') + 1:]))
-    # Repetitions duplicate samples in RAM and do not affect which data is downloaded.
     config.repeats = 1
     adapter = get_benchmark(name, config)
+    if hasattr(adapter, 'build_docker_images'):
+        adapter.build_docker_images = False
+    if hasattr(adapter, 'pull_remote_images_if_available'):
+        adapter.pull_remote_images_if_available = False
+    # 判断是否为多模态数据集（需要遍历样本验证媒体文件）
+    ds_config = native.SUPPORTED_DATASETS.get(name, {})
+    is_multimodal = bool(ds_config.get('multimodal'))
+
+    if not is_multimodal:
+        config.limit = 3
+
+        def build_adapter():
+            fresh = get_benchmark(name, config)
+            if hasattr(fresh, 'build_docker_images'):
+                fresh.build_docker_images = False
+            if hasattr(fresh, 'pull_remote_images_if_available'):
+                fresh.pull_remote_images_if_available = False
+            return fresh
+
+        adapter = build_adapter()
+        try:
+            test_ds, _ = adapter.load()
+        except Exception as exc:
+            # A leftover empty Arrow dir blocks evalscope from re-downloading.
+            # Only preparation may repair it; offline checks must stay read-only.
+            if not prepare:
+                raise
+            hints = re.findall(r'(/[^\s"\']+?)\s+is neither', str(exc))
+            if not _clear_invalid_caches(adapter, hints):
+                raise
+            adapter = build_adapter()
+            test_ds, _ = adapter.load()
+        if test_ds is None:
+            raise ValueError('数据集为空，下载可能失败')
+        sampled = sum(len(subset) for subset in test_ds.values())
+        del test_ds
+        if not sampled:
+            raise ValueError('数据集为空，不能开始评测')
+        total = _count_arrow_cache(adapter) or sampled
+        del adapter
+        verb = '下载' if prepare else '加载'
+        return {'detail': f'按框架规则成功{verb}验证（共 {total} 条样本，未发出模型请求）', 'online_media': 0}
+    # 多模态检查模式：需要遍历样本验证媒体文件
     loaded = adapter.load_dataset()
-    # Native adapters return a DatasetDict or a (test, few-shot) pair.
     if loaded is None:
         loaded = adapter.test_dataset
     if isinstance(loaded, tuple):
         loaded = loaded[0]
-    total, online = 0, 0
+    total = sum(len(subset) for subset in loaded.values())
+    if not total:
+        raise ValueError('数据集为空，不能开始评测')
+    # 检查模式：遍历样本验证媒体文件
+    online = 0
     for subset in loaded.values():
-        total += len(subset)
         for sample in subset:
             if isinstance(sample.input, list):
                 for message in sample.input:
@@ -88,8 +191,6 @@ def load_data(name, options, prepare=False):
                                 with Path(value).open('rb') as file:
                                     if file.read(80).startswith(b'version https://git-lfs.github.com/spec'):
                                         raise ValueError('媒体文件仍为 Git LFS 指针：' + value)
-    if not total:
-        raise ValueError('数据集为空，不能开始评测')
     return {'detail': f'按框架规则成功加载 {total} 条样本（未发出模型请求）', 'online_media': online}
 
 
@@ -98,7 +199,13 @@ def main():
     options = json.loads(sys.argv[4]) if len(sys.argv) > 4 else {}
     configure_downloads(os.environ)
     if command.startswith('check-'):
-        offline()
+        if command == 'check-data':
+            native = load_native()
+            ds_config = native.SUPPORTED_DATASETS.get(value, {})
+            if not ds_config.get('multimodal'):
+                offline()
+        else:
+            offline()
     try:
         if command.endswith('data'):
             result = load_data(value, options, prepare=command.startswith('prepare-'))

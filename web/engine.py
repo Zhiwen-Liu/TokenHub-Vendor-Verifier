@@ -19,15 +19,29 @@ PERF_ENV = {'buckets': 'BUCKETS', 'ladder': 'CONCURRENCY_LADDER', 'cooldown': 'B
 EVAL_FLAGS = {'limit': '--limit', 'repeats': '--repeats', 'batch': '--eval_batch_size', 'judge-model': '--judge_model', 'judge-url': '--judge_base_url', 'sandbox': '--sandbox'}
 
 
+_registry_cache = {'stamp': None, 'value': None}
+
+
 def registry():
-    tree = ast.parse((ROOT / 'thvv/eval/scripts/run_eval.py').read_text())
+    script = ROOT / 'thvv/eval/scripts/run_eval.py'
+    try:
+        stat = script.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        stamp = None
+    if _registry_cache['value'] is not None and _registry_cache['stamp'] == stamp:
+        return _registry_cache['value']
+    tree = ast.parse(script.read_text())
     names = {}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id in ('SUPPORTED_DATASETS', 'ALL_EXCLUDED_DATASETS'):
                     names[target.id] = ast.literal_eval(node.value)
-    return names['SUPPORTED_DATASETS'], names['ALL_EXCLUDED_DATASETS']
+    value = (names['SUPPORTED_DATASETS'], names['ALL_EXCLUDED_DATASETS'])
+    _registry_cache['stamp'] = stamp
+    _registry_cache['value'] = value
+    return value
 
 
 def judge_defaults():
@@ -179,6 +193,10 @@ def prepare_run(task, workspace, secrets):
         for key, flag in EVAL_FLAGS.items():
             if key in opts:
                 cmd.extend([flag, opts[key]])
+        if 'msr_vtt' in spec['datasets']:
+            video_dir = ROOT / 'thvv/eval/datasets/msr_vtt/test_1k'
+            if video_dir.is_dir():
+                cmd.extend(['--dataset_hub', 'huggingface', '--msr_vtt_video_dir', str(video_dir)])
     else:
         for key, name in PERF_ENV.items():
             if key in opts:

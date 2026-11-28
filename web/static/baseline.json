@@ -1,0 +1,148 @@
+{
+  "models": [
+    "kimi-k3",
+    "kimi-k3.1-pro",
+    "glm-5.3-flash",
+    "glm-5.3-flashx",
+    "glm-5.3",
+    "deepseek-v4.1-flash-1017",
+    "HY3",
+    "deepseek-v4-flash-0731",
+    "hy4-preview"
+  ],
+  "rows": [
+    {
+      "dataset_id": "arxivmath",
+      "dataset": "ArXiv-Math",
+      "scores": {
+        "kimi-k3": 41.18,
+        "kimi-k3.1-pro": 53.68,
+        "glm-5.3-flash": 12.87,
+        "glm-5.3-flashx": 29.41,
+        "glm-5.3": 26.26,
+        "deepseek-v4.1-flash-1017": 38.24
+      },
+      "tolerance": "±2-4%"
+    },
+    {
+      "dataset_id": "hle",
+      "dataset": "HLE",
+      "scores": {
+        "kimi-k3": 44.0,
+        "kimi-k3.1-pro": 52.0,
+        "glm-5.3-flash": 34.15,
+        "glm-5.3-flashx": 31.49,
+        "glm-5.3": 38.83,
+        "deepseek-v4.1-flash-1017": 38.32
+      },
+      "tolerance": "±2-4%"
+    },
+    {
+      "dataset_id": "mmlu_pro",
+      "dataset": "MMLU_Pro",
+      "scores": {
+        "kimi-k3": 89.52,
+        "kimi-k3.1-pro": 90.44,
+        "glm-5.3-flash": 87.18,
+        "glm-5.3-flashx": 87.38,
+        "glm-5.3": 88.09,
+        "deepseek-v4.1-flash-1017": 88.17
+      },
+      "tolerance": "±2-4%"
+    },
+    {
+      "dataset_id": "simple_qa",
+      "dataset": "Simple_QA",
+      "scores": {
+        "kimi-k3": 46.1,
+        "kimi-k3.1-pro": 60.73,
+        "glm-5.3-flash": 32.55,
+        "glm-5.3-flashx": 34.66,
+        "glm-5.3": 38.9,
+        "deepseek-v4.1-flash-1017": 44.06
+      },
+      "tolerance": "±2-4%"
+    },
+    {
+      "dataset_id": "gpqa_diamond",
+      "dataset": "GPQA-Diamond",
+      "scores": {
+        "kimi-k3": 92.76,
+        "kimi-k3.1-pro": 92.93,
+        "glm-5.3-flash": 90.91,
+        "glm-5.3-flashx": 92.09,
+        "glm-5.3": 92.09,
+        "deepseek-v4.1-flash-1017": 92.09
+      },
+      "tolerance": "±2-4%"
+    },
+    {
+      "dataset_id": "longbench_v2",
+      "dataset": "LongBench V2 (Short)",
+      "scores": {
+        "kimi-k3": 72.22,
+        "kimi-k3.1-pro": 72.22,
+        "glm-5.3-flash": 71.11,
+        "glm-5.3-flashx": 69.44,
+        "glm-5.3": 68.33,
+        "deepseek-v4.1-flash-1017": 71.67
+      },
+      "tolerance": "±2-4%"
+    },
+    {
+      "dataset_id": "tau2_bench",
+      "dataset": "τ²-Bench · OVERALL",
+      "scores": {
+        "kimi-k3": 75.02,
+        "kimi-k3.1-pro": 80.51,
+        "glm-5.3-flash": 87.22,
+        "glm-5.3-flashx": 87.52,
+        "glm-5.3": 87.91,
+        "deepseek-v4.1-flash-1017": 83.02,
+        "HY3": 73.61,
+        "deepseek-v4-flash-0731": 88.7,
+        "hy4-preview": 77.27
+      },
+      "tolerance": "±2-4%"
+    },
+    {
+      "dataset_id": "live_code_bench",
+      "dataset": "LIVE-CODE-BENCH",
+      "scores": {
+        "kimi-k3": 93.18,
+        "kimi-k3.1-pro": 94.77,
+        "glm-5.3-flash": 89.65,
+        "glm-5.3-flashx": 89.48,
+        "glm-5.3": 91.73,
+        "deepseek-v4.1-flash-1017": 92.8,
+        "hy4-preview": 86.92
+      },
+      "tolerance": "±2-4%"
+    },
+    {
+      "dataset_id": "swe_bench_verified_mini_agentic",
+      "dataset": "SWE-bench_Verified_Mini_Agentic",
+      "scores": {
+        "kimi-k3.1-pro": 85.42,
+        "glm-5.3-flash": 83.67,
+        "glm-5.3-flashx": 85.71,
+        "glm-5.3": 85.37,
+        "deepseek-v4.1-flash-1017": 84.0,
+        "hy4-preview": 85.42
+      },
+      "tolerance": "±2-4%"
+    },
+    {
+      "dataset_id": "aime26",
+      "dataset": "AIME2026",
+      "scores": {
+        "kimi-k3": 95.0,
+        "HY3": 96.63,
+        "deepseek-v4-flash-0731": 95.67,
+        "hy4-preview": 96.0,
+        "glm-5.3": 93.12
+      },
+      "tolerance": "±2-4%"
+    }
+  ]
+}

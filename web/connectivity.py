@@ -20,13 +20,13 @@ def check(url, model, protocol, key=''):
     started = time.monotonic()
     result = {'ready': False, 'url': address, 'http_status': None}
     try:
-        with httpx.Client(timeout=httpx.Timeout(20, connect=8), follow_redirects=False) as client:
+        with httpx.Client(timeout=httpx.Timeout(10, connect=5), follow_redirects=False, trust_env=False) as client:
             with client.stream('POST', address, headers=headers, json=payload) as response:
                 result['http_status'] = response.status_code
                 raw = b''
                 for chunk in response.iter_bytes():
                     raw += chunk
-                    if len(raw) > 65536 or time.monotonic() - started > 25:
+                    if len(raw) > 65536 or time.monotonic() - started > 12:
                         raise ValueError('响应过大或耗时过长，请检查服务是否返回了正确的模型响应')
                 try:
                     data = json.loads(raw)
